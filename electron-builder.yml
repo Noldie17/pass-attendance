@@ -4,6 +4,7 @@ asar: true
 directories:
   buildResources: build
   output: release
+publish: null
 files:
   - out/**
   - package.json
