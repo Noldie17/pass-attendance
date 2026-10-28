@@ -2,6 +2,7 @@
 
 ## 0.1.0 — Review patch (2026-10-28)
 - Fixed: exporting the class record twice for the same date added a duplicate date column. It now updates the existing column for that date.
+- Fixed: the Windows build failed with 'macro target is not defined'. Installer names are now set per target (PASS-Setup-<version>.exe and PASS-Portable-<version>.exe) instead of using an unsupported ${target} macro.
 - Added regression tests (tests/export-workbook.test.ts). The suite now has 12 tests.
 
 ## 0.1.0 — 2026-10-27

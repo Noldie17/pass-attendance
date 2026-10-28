@@ -14,12 +14,12 @@ win:
       arch: [x64]
     - target: portable
       arch: [x64]
-  artifactName: PASS-${version}-${arch}-${target}.${ext}
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  artifactName: PASS-Setup-${version}.${ext}
 portable:
-  artifactName: PASS-${version}-${arch}-portable.${ext}
+  artifactName: PASS-Portable-${version}.${ext}
