@@ -31,7 +31,7 @@ export class AttendanceService {
     await this.db.write(database => database.run(`INSERT INTO attendance(class_id,student_id,date,status,time_in,source,remark)
       VALUES(?,?,?,?,?,'manual',?) ON CONFLICT(class_id,student_id,date) DO UPDATE SET
       status=excluded.status,time_in=excluded.time_in,source='manual',remark=excluded.remark`,
-      [input.classId, input.studentId, input.date, input.status, input.status === 'A' ? null : now.time, input.remark.trim() || null]))
+      [input.classId, input.studentId, input.date, input.status, input.status === 'A' ? null : now.time, input.remark.trim()]))
   }
 
   async scan(input: { classId: string; payload: string; source: ScanSource }): Promise<ScanResult> {
@@ -42,7 +42,6 @@ export class AttendanceService {
     const lookup = this.db.get<StudentLookup>('SELECT students.student_id,students.name,classes.name AS class_name FROM students JOIN classes ON classes.id=students.class_id WHERE students.class_id=? AND students.student_id=?', [input.classId, studentId])
     const cooldownKey = `${input.classId}:${studentId}`, nowMs = now.getTime()
     if (isWithinCooldown(this.lastScan.get(cooldownKey), nowMs, this.settings.get().cooldown_sec)) {
-      this.lastScan.set(cooldownKey, nowMs)
       await this.log(classRecord.name, { timestampIso, date, time, studentId, name: lookup?.name ?? '', className: classRecord.name, source: input.source, result: 'ignored-cooldown' })
       return { code: 'cooldown-ignored', studentId, name: lookup?.name ?? null, status: null, time: null, message: '' }
     }
@@ -57,7 +56,7 @@ export class AttendanceService {
       return { code: 'already-recorded', studentId, name: lookup.name, status: existing.status, time: existing.time_in, message: `Already recorded at ${existing.time_in ?? '--:--'}` }
     }
     const status = decideAttendance({ now, lateCutoff: this.settings.get().late_cutoff, alreadyRecorded: false }) as AttendanceStatus
-    await this.db.write(database => database.run('INSERT INTO attendance(class_id,student_id,date,status,time_in,source,remark) VALUES(?,?,?,?,?,?,NULL)', [input.classId, studentId, date, status, time, input.source]))
+    await this.db.write(database => database.run('INSERT INTO attendance(class_id,student_id,date,status,time_in,source,remark) VALUES(?,?,?,?,?,?,?)', [input.classId, studentId, date, status, time, input.source, '']))
     await this.log(classRecord.name, { timestampIso, date, time, studentId, name: lookup.name, className: classRecord.name, source: input.source, result: `recorded:${status}` })
     return { code: 'recorded', studentId, name: lookup.name, status, time, message: status === 'L' ? 'Late' : 'Present' }
   }

@@ -2,7 +2,7 @@
 
 **Document version:** 1.0  
 **Product:** PASS — PNHS Attendance Scanning System  
-**Current package version in `package.json`:** 0.1.0  
+**Current package version in `package.json`:** 0.2.3  
 **Status:** Requirements and implementation summary; Windows acceptance testing is pending.
 
 ## 1. Overview
@@ -11,7 +11,7 @@ PASS is an offline Windows desktop attendance system for Pantabangan National Hi
 
 The product addresses slow, error-prone manual roll call and the lack of a scan-attempt record that can help explain what happened during attendance. An append-only CSV log records scan attempts, including duplicate and unknown IDs. PASS keeps its database on the local computer and does not provide cloud synchronization.
 
-This document is version 1.0 as requested for the Phase 5 documentation deliverable. The application package metadata still reports version 0.1.0; it is not evidence that a 1.0 application release has been built or accepted.
+This document is version 1.0 as requested for the Phase 5 documentation deliverable. The application package version is 0.2.3; it is not evidence that a 1.0 application release has been built or accepted.
 
 ## 2. Goals, non-goals, and out of scope
 
@@ -218,7 +218,7 @@ Status describes the code observed in the project, not a completed school accept
 ## 14. Deviations from spec
 
 - The ZIP UI reference was not supplied. The current screen design uses the written navy/green/canvas colors and a locally generated PASS wordmark icon, not the original seven-screen layout/components/logo.
-- Product documentation is labeled version 1.0 per request, while the application’s `package.json` version is 0.1.0.
+- Product documentation is labeled version 1.0 per request, distinct from the application’s `package.json` version of 0.2.3.
 - The renderer CSP allows inline styles (`style-src 'unsafe-inline'`); it blocks remote connections and inline scripts, but does not use nonce/hash-only style policy.
 - Class scan logs are stored in folders named from the class name. Renaming a class does not migrate old CSV files; the Scan Log screen reads the current name’s folder, so historical logs under the old name may no longer appear there.
 - Repeated Update class record actions append another column for the selected date rather than detecting an existing date header. The new-cell styling copies the adjacent last-used cell’s style; complete layout preservation for unusual workbooks is not verified.

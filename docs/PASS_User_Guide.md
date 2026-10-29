@@ -1,7 +1,7 @@
 # PASS — Teacher User Guide
 
 **Guide version:** 1.0  
-**Application package version currently in the project:** 0.1.0
+**Application package version:** 0.2.3
 
 ## 0. Quick Start
 

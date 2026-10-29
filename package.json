@@ -1,6 +1,6 @@
 {
   "name": "pass-attendance",
-  "version": "0.1.0",
+  "version": "0.2.3",
   "private": true,
   "description": "Offline attendance scanning system for Pantabangan National High School",
   "main": "./out/main/index.js",

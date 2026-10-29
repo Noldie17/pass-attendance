@@ -32,6 +32,9 @@
 .offline div { display: flex; flex-direction: column; gap: 2px; }.offline strong { font-size: 12px; }.offline span { color: #82909f; font-size: 9px; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar { height: 68px; flex: none; padding: 0 27px; background: var(--green); color: white; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px #1f3f2c24; position: relative; z-index: 4; }
+.toast { position: fixed; top: 80px; right: 24px; z-index: 10; width: max-content; max-width: min(420px, calc(100vw - 48px)); padding: 13px 17px; border: 1px solid #ccebd7; border-left: 4px solid var(--green); border-radius: 8px; background: white; color: #26352c; box-shadow: 0 8px 26px #17212b24; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; animation: toast-enter .2s ease-out; pointer-events: none; }
+@keyframes toast-enter { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 .app-name { font-weight: 650; font-size: 19px; letter-spacing: -.3px; }.app-name span { font-weight: 800; }
 .class-switcher { display: flex; gap: 12px; align-items: center; }.class-switcher>div:first-child { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
 .class-switcher small { font-size: 8px; letter-spacing: 1.1px; opacity: .72; font-weight: 700; }
