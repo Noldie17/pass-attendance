@@ -20,7 +20,7 @@ async function createWindow(): Promise<void> {
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => permission === 'media')
 
   mainWindow = new BrowserWindow({
-    width: 1280, height: 820, minWidth: 900, minHeight: 620,
+    width: 1280, height: 820, minWidth: 760, minHeight: 540,
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

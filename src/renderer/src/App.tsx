@@ -67,7 +67,7 @@ export default function App() {
   }, [activeClassId, date, logFrom, logTo, reloadScreenData])
   useEffect(() => {
     if (!toast) return
-    const id = window.setTimeout(() => setToast(''), 3200)
+    const id = window.setTimeout(() => setToast(''), 5500)
     return () => window.clearTimeout(id)
   }, [toast])
 
@@ -158,7 +158,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar" aria-label="Main navigation">
       <div className="brand-mark" title="PASS — PNHS Attendance Scanning System"><PassLogo /></div>
-      <nav>{screens.map(item => <button key={item.id} className={screen === item.id ? 'active' : ''} onClick={() => { setScreen(item.id); if (item.id === 'scan') setDate(today()) }} aria-current={screen === item.id ? 'page' : undefined}><Icon name={item.glyph} /><span>{item.label}</span></button>)}</nav>
+      <nav>{screens.map(item => <button key={item.id} className={screen === item.id ? 'active' : ''} onClick={() => { setScreen(item.id); if (item.id === 'scan') setDate(today()) }} aria-label={item.label} title={item.label} aria-current={screen === item.id ? 'page' : undefined}><Icon name={item.glyph} /><span>{item.label}</span></button>)}</nav>
       <div className="offline"><i /><div><strong>Offline</strong><span>Data saved locally</span></div></div>
     </aside>
     <main className="main">

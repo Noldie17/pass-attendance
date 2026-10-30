@@ -1,5 +1,19 @@
 # Progress
 
+## In progress — Post-v0.2.3 responsive UI updates (2026-10-30)
+- Made the renderer fit the Electron window instead of enforcing a 1050×700 CSS minimum; reduced the native minimum window size to 760×540.
+- Added responsive layouts for narrower windows: compact icon navigation, stacked content and forms, and dialogs that fit the available viewport.
+- Kept the camera and scan-result panels side by side at medium and wide sizes, stacking them only on very narrow screens.
+- Extended transient notification display time to 5.5 seconds.
+- Added accessible labels and tooltips to navigation buttons in compact mode.
+- Verification on the current working tree: `npm test` (14 tests), `npx tsc --noEmit`, and `npm run build` passed. The Windows installer has not yet been rebuilt and manually checked with these uncommitted UI updates.
+
+## Done — v0.2.3 scanner and notification fixes (2026-10-29)
+- Fixed scans failing against existing databases that require a non-null attendance remark; blank manual remarks are also stored as empty text.
+- Fixed a continuously visible QR code renewing its cooldown on every ignored frame, which could prevent a retry indefinitely.
+- Positioned success notifications beneath the header as overlays so they do not shift page content.
+- Added regression tests for the legacy database constraint and scan cooldown retry.
+
 ## Done — Phase 1
 - Created pinned Electron + electron-vite + React 19 + TypeScript + Tailwind 4 scaffold with bundled Inter fonts.
 - Added SQL.js schema and atomic persistence in Electron `userData`; ExcelJS class import/column mapping; scan decisions/cooldown; CSV scan logging with fsync; settings and scrypt PIN services.

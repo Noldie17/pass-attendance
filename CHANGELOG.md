@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Responsive window and usability updates (2026-10-30)
+- Made the app layout adapt to smaller window sizes, including compact navigation, responsive grids/forms, and viewport-fitting dialogs.
+- Kept the camera and scan result side by side when there is enough room; stack them only on very narrow windows.
+- Extended success notification display time to 5.5 seconds.
+- Lowered the minimum Electron window size to 760×540 and added accessible names/tooltips to compact navigation buttons.
+- Verified the current source with `npm test` (14 tests), `npx tsc --noEmit`, and `npm run build`. The Windows installer still needs to be rebuilt and manually checked.
+
 ## 0.2.3 — Scanner and notification fixes (2026-10-29)
 - Fixed QR scans failing against existing databases that require a non-null attendance remark.
 - Fixed continuously visible QR codes being held in cooldown indefinitely instead of retrying after the cooldown interval.
