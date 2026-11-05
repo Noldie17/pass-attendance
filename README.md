@@ -2,9 +2,9 @@
 
 # PASS Attendance
 
-### Offline QR attendance for Pantabangan National High School
+### Every scan counts. Attendance made simple, secure, and offline.
 
-Scan attendance, manage class rosters, and update DepEd School Form 2 workbooks on Windows.
+Scan attendance and manage SF2 records offline.
 
 [Download for Windows](https://github.com/Noldie17/pass-attendance/releases/latest) ·
 [Teacher guide](docs/PASS_User_Guide.md) ·
@@ -47,20 +47,6 @@ The latest release page contains the Windows executables attached by GitHub Acti
 ## Build and download with GitHub Actions
 
 Every push to `main` builds the Windows installer and portable executable and uploads them as a temporary Actions artifact. To create permanent downloadable files on the Releases page, push a version tag matching `package.json` (currently `v1.1.1`). The workflow attaches both `.exe` files to the GitHub Release and retains the Actions artifact. Follow progress under **Actions → Build Windows installers**.
-
-For this release, from the repository folder in PowerShell:
-
-```powershell
-git status --short
-git add -A
-git commit -m "Release PASS v1.1.1" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
-$branch = git branch --show-current
-git push -u origin $branch
-git tag -a v1.1.1 -m "PASS v1.1.1"
-git push origin v1.1.1
-```
-
-Review `git status --short` before `git add -A`; that command stages all current changes. The existing remote tag `v1.1.0` is already in use and should not be moved.
 
 ## Development
 
