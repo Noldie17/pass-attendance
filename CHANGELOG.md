@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.3 — Windows release version
+- Set the application and lockfile version to `1.1.3` for the next Windows release.
+
 ## 1.1.1 — GitHub release downloads
 - Added a polished README with a prominent Windows downloads link, project overview, setup instructions, and privacy notes.
 - Updated GitHub Actions to publish the versioned installer and portable executable as downloadable assets on tagged GitHub Releases while keeping the Actions artifact.

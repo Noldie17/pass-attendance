@@ -46,7 +46,7 @@ The latest release page contains the Windows executables attached by GitHub Acti
 
 ## Build and download with GitHub Actions
 
-Every push to `main` builds the Windows installer and portable executable and uploads them as a temporary Actions artifact. To create permanent downloadable files on the Releases page, push a version tag matching `package.json` (currently `v1.1.1`). The workflow attaches both `.exe` files to the GitHub Release and retains the Actions artifact. Follow progress under **Actions → Build Windows installers**.
+Every push to `main` builds the Windows installer and portable executable and uploads them as a temporary Actions artifact. To create permanent downloadable files on the Releases page, push a version tag matching `package.json` (currently `v1.1.3`). The workflow attaches both `.exe` files to the GitHub Release and retains the Actions artifact. Follow progress under **Actions → Build Windows installers**.
 
 ## Development
 
