@@ -4,9 +4,13 @@ import { app, BrowserWindow, dialog } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { AttendanceStatus, ClassRecord, ScanLogEntry, StudentRecord } from '@shared/types'
+import type { AttendanceStatus, ClassRecord, ClassRecordExportPreview, ExportSheetOption, ScanLogEntry, StudentRecord } from '@shared/types'
 import type { PassDatabase } from './db'
 import { readScanLog } from './scan-log'
+import { getSf2WorkbookPath, listSf2Sheets, previewSf2Workbook, updateSf2Workbook } from './sf2-export'
+import { readSpreadsheet } from './spreadsheet-reader'
+import { normalizeStudentName } from '@shared/sf2'
+import { UserFacingError } from '@shared/errors'
 
 const LOCK_MESSAGE = 'Close the file in Excel, then try again'
 function isFileLockError(error: unknown): boolean {
@@ -18,6 +22,55 @@ function escapeHtml(value: string): string {
 }
 function cloneStyle<T>(value: T): T {
   return value === undefined || value === null ? value : JSON.parse(JSON.stringify(value)) as T
+}
+function valueOf(value: ExcelJS.CellValue): unknown {
+  if (value === null || value === undefined) return ''
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'object') {
+    if ('result' in value) return value.result ?? ''
+    if ('text' in value) return value.text ?? ''
+    if ('richText' in value) return value.richText.map(part => part.text).join('')
+  }
+  return value
+}
+function verificationValues(sheet: ExcelJS.Worksheet): Array<{ address: string; value: unknown }> {
+  const values: Array<{ address: string; value: unknown }> = []
+  sheet.eachRow(row => row.eachCell({ includeEmpty: false }, cell => {
+    if (cell.value !== null && cell.value !== undefined) values.push({
+      address: cell.address,
+      value: JSON.parse(JSON.stringify(valueOf(cell.value))) as unknown
+    })
+  }))
+  return values
+}
+export async function writeVerifiedWorkbook(workbook: ExcelJS.Workbook, workbookPath: string, sheetName: string, expected: Array<{ address: string; value: unknown }>): Promise<string> {
+  const backupPath = path.join(path.dirname(workbookPath), `${path.basename(workbookPath, path.extname(workbookPath))}.bak.xlsx`)
+  const tempPath = `${workbookPath}.${randomUUID()}.tmp.xlsx`
+  try {
+    await workbook.xlsx.writeFile(tempPath)
+    const verified = new ExcelJS.Workbook()
+    await verified.xlsx.readFile(tempPath)
+    const verifiedSheet = verified.getWorksheet(sheetName)
+    if (!verifiedSheet) throw new UserFacingError('The saved workbook could not be verified because the selected worksheet is missing.')
+    for (const expectedCell of expected) {
+      const actual = valueOf(verifiedSheet.getCell(expectedCell.address).value)
+      if (JSON.stringify(actual) !== JSON.stringify(expectedCell.value)) {
+        throw new UserFacingError(`The workbook update could not be verified at cell ${expectedCell.address}. The original file was not changed.`)
+      }
+    }
+    try { await fs.copyFile(workbookPath, backupPath, fs.constants.COPYFILE_EXCL) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+    await fs.rename(tempPath, workbookPath)
+  } catch (error) {
+    try { await fs.rm(tempPath, { force: true }) }
+    catch (cleanupError) {
+      throw new UserFacingError(`The workbook was not updated. Temporary file cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, { cause: error })
+    }
+    if (isFileLockError(error)) throw new UserFacingError(LOCK_MESSAGE, { cause: error })
+    if (error instanceof UserFacingError) throw error
+    throw new UserFacingError(`The workbook was not updated: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  return backupPath
 }
 export function statusByStudent(students: Array<Pick<StudentRecord, 'student_id'>>, records: Array<{ student_id: string; status: AttendanceStatus }>): Map<string, AttendanceStatus> {
   const statusMap = new Map(records.map(record => [record.student_id, record.status]))
@@ -66,41 +119,208 @@ export function applyAttendanceColumn(workbook: ExcelJS.Workbook, options: {
   return { sheetName: sheet.name, columnNumber, header, matched }
 }
 
-export async function updateClassWorkbook(db: PassDatabase, input: { classId: string; date: string }): Promise<{ savedPath: string; backupPath: string; matched: number; header: string }> {
-  const record = db.get<ClassRecord>('SELECT * FROM classes WHERE id=?', [input.classId])
-  if (!record) throw new Error('Class not found.')
-  if (!record.source_xlsx_path) throw new Error('This class has no original .xlsx file. Import a spreadsheet to enable this export.')
-  let mapping: { idColumn?: number; sheetName?: string } = {}
-  try { mapping = JSON.parse(record.col_map_json ?? '{}') as typeof mapping } catch { /* validate below */ }
-  if (!Number.isInteger(mapping.idColumn) || (mapping.idColumn ?? -1) < 0) throw new Error('The imported Student ID column mapping is missing. Re-import the class spreadsheet.')
-  const students = db.all<StudentRecord>('SELECT id,class_id,student_id,name FROM students WHERE class_id=? ORDER BY id', [input.classId])
-  const attendance = db.all<{ student_id: string; status: AttendanceStatus }>('SELECT student_id,status FROM attendance WHERE class_id=? AND date=?', [input.classId, input.date])
-  const statuses = statusByStudent(students, attendance)
-  const workbook = new ExcelJS.Workbook()
-  try { await workbook.xlsx.readFile(record.source_xlsx_path) }
-  catch (error) { if (isFileLockError(error)) throw new Error(LOCK_MESSAGE); throw error }
-  const result = applyAttendanceColumn(workbook, {
-    sheetName: mapping.sheetName ?? '', idColumn: mapping.idColumn!, date: input.date, students, statuses
-  })
-  const sourceExtension = path.extname(record.source_xlsx_path)
-  const backupPath = path.join(path.dirname(record.source_xlsx_path), `${path.basename(record.source_xlsx_path, sourceExtension)}.bak.xlsx`)
-  try {
-    try { await fs.copyFile(record.source_xlsx_path, backupPath, fs.constants.COPYFILE_EXCL) }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
-    const tempPath = `${record.source_xlsx_path}.${randomUUID()}.tmp.xlsx`
-    try {
-      await workbook.xlsx.writeFile(tempPath)
-      await fs.rename(tempPath, record.source_xlsx_path)
-    } catch (error) {
-      await fs.rm(tempPath, { force: true }).catch(() => undefined)
-      if (isFileLockError(error)) throw new Error(LOCK_MESSAGE)
-      throw error
-    }
-  } catch (error) {
-    if (isFileLockError(error)) throw new Error(LOCK_MESSAGE)
-    throw error
+function emptyPreview(filePath: string, errors: string[] = []): ClassRecordExportPreview {
+  return {
+    filePath, kind: null, sheets: [], sheet: null, month: null, day: null, date: null, dayColumn: null,
+    willMarkAbsent: [], willClear: [], unchanged: 0, unmatchedClass: [], unmatchedSheet: [],
+    scansCount: 0, errors, warnings: []
   }
-  return { savedPath: record.source_xlsx_path, backupPath, matched: result.matched, header: result.header }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+}
+
+function fileReadMessage(error: unknown): string {
+  if (isFileLockError(error)) return LOCK_MESSAGE
+  if (isMissingFile(error)) return 'The selected workbook was not found. Choose the file again.'
+  return `Could not read the selected workbook. Check that it is a valid Excel file and not damaged: ${error instanceof Error ? error.message : String(error)}`
+}
+
+function zipPartNames(buffer: Buffer): string[] {
+  let end = -1
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65557); offset--) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) { end = offset; break }
+  }
+  if (end < 0 || end + 20 > buffer.length) return []
+  const entries = buffer.readUInt16LE(end + 10)
+  let offset = buffer.readUInt32LE(end + 16)
+  const names: string[] = []
+  for (let index = 0; index < entries && offset + 46 <= buffer.length; index++) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) break
+    const nameLength = buffer.readUInt16LE(offset + 28)
+    const extraLength = buffer.readUInt16LE(offset + 30)
+    const commentLength = buffer.readUInt16LE(offset + 32)
+    if (offset + 46 + nameLength + extraLength + commentLength > buffer.length) break
+    names.push(buffer.toString('utf8', offset + 46, offset + 46 + nameLength))
+    offset += 46 + nameLength + extraLength + commentLength
+  }
+  return names
+}
+
+function workbookArtifactWarnings(names: string[]): string[] {
+  return names.some(name => /^xl\/(charts|drawings|ctrlProps|activeX|controls)\//i.test(name))
+    ? ['This workbook contains charts, drawings, or form controls that ExcelJS may not preserve when saving. Keep the original and inspect the updated copy.']
+    : []
+}
+
+function tableSheetOptions(workbook: ExcelJS.Workbook): ExportSheetOption[] {
+  return workbook.worksheets.map(sheet => ({
+    name: sheet.name, kind: 'table', month: null, schoolYear: null, gradeLevel: null, section: null,
+    learnerCount: 0, differentSection: false, days: []
+  }))
+}
+
+function tablePreview(workbook: ExcelJS.Workbook, options: {
+  filePath: string
+  students: StudentRecord[]
+  attendance: Array<{ student_id: string; status: AttendanceStatus }>
+  date: string
+  sheetName?: string
+  mapping: { idColumn?: number; nameColumn?: number; headerRow?: number; sheetName?: string }
+}): ClassRecordExportPreview {
+  const sheets = tableSheetOptions(workbook)
+  const errors: string[] = []
+  const warnings: string[] = []
+  const sheet = workbook.getWorksheet(options.sheetName ?? options.mapping.sheetName ?? '')
+  if (!sheet) errors.push('Choose an available worksheet from this workbook.')
+  if (!options.date || !Number.isFinite(new Date(`${options.date}T12:00:00`).getTime())) errors.push('Choose a valid attendance date.')
+  if (!Number.isInteger(options.mapping.idColumn) || !Number.isInteger(options.mapping.nameColumn)) {
+    errors.push('The saved roster column mapping is incomplete. Re-import the class workbook.')
+  }
+  if (!sheet || !Number.isInteger(options.mapping.idColumn) || !Number.isInteger(options.mapping.nameColumn)) {
+    return {
+      ...emptyPreview(options.filePath, errors), kind: 'table', sheets, sheet: sheet?.name ?? null,
+      date: options.date || null, scansCount: options.attendance.length, warnings
+    }
+  }
+  const idColumn = options.mapping.idColumn!
+  const nameColumn = options.mapping.nameColumn!
+  const headerRow = options.mapping.headerRow ?? 1
+  const idByStudent = new Map(options.students.map(student => [student.student_id.trim().toLocaleLowerCase(), student]))
+  const rowByStudent = new Map<string, number>()
+  const unmatchedSheet: string[] = []
+  for (let rowNumber = headerRow + 1; rowNumber <= sheet.rowCount; rowNumber++) {
+    const row = sheet.getRow(rowNumber)
+    const id = String(valueOf(row.getCell(idColumn + 1).value)).trim().toLocaleLowerCase()
+    const name = String(valueOf(row.getCell(nameColumn + 1).value)).trim()
+    if (!id && !name) continue
+    const student = idByStudent.get(id)
+    if (student) rowByStudent.set(student.student_id, rowNumber)
+    else if (name) unmatchedSheet.push(name)
+  }
+  const unmatchedClass = options.students.filter(student => !rowByStudent.has(student.student_id)).map(student => student.name)
+  const matched = rowByStudent.size
+  const ratio = options.students.length ? matched / options.students.length : 0
+  if (!matched || ratio < 0.5) errors.push(`Only ${matched} of ${options.students.length} active learners match this worksheet. Choose the correct file or sheet.`)
+  else if (ratio <= 0.9) warnings.push(`Only ${matched} of ${options.students.length} learners match. Not in PASS: ${unmatchedSheet.join('; ') || 'none'}. Not in worksheet: ${unmatchedClass.join('; ') || 'none'}.`)
+  if (!options.attendance.length) warnings.push(`No attendance records are saved for ${options.date}; this update will mark ${matched} matched learners absent.`)
+  const parsedDate = new Date(`${options.date}T12:00:00`)
+  const header = parsedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  let dayColumn = Math.max(sheet.columnCount, 1) + 1
+  sheet.getRow(1).eachCell({ includeEmpty: false }, (cell, column) => {
+    if (String(valueOf(cell.value)).trim() === header) dayColumn = column
+  })
+  const statusById = new Map(options.attendance.map(mark => [mark.student_id.toLocaleLowerCase(), mark.status]))
+  const willMarkAbsent: string[] = []
+  let unchanged = 0
+  for (const student of options.students) {
+    const row = rowByStudent.get(student.student_id)
+    if (!row) continue
+    const value = String(valueOf(sheet.getCell(row, dayColumn).value)).trim()
+    const status = statusById.get(student.student_id.toLocaleLowerCase()) ?? 'A'
+    if (status === 'A') willMarkAbsent.push(student.name)
+    else if (value) unchanged++
+  }
+  return {
+    filePath: options.filePath, kind: 'table', sheets, sheet: sheet.name, month: null, day: parsedDate.getDate(),
+    date: options.date, dayColumn, willMarkAbsent, willClear: [], unchanged, unmatchedClass, unmatchedSheet,
+    scansCount: options.attendance.length, errors, warnings
+  }
+}
+
+export async function previewClassWorkbook(db: PassDatabase, input: {
+  classId: string; filePath?: string; date?: string; sheetName?: string; day?: number
+}): Promise<ClassRecordExportPreview> {
+  const record = db.get<ClassRecord>('SELECT * FROM classes WHERE id=?', [input.classId])
+  if (!record) return emptyPreview(input.filePath ?? '', ['Class not found. Select a class and try again.'])
+  const mapping = JSON.parse(record.col_map_json ?? '{}') as { kind?: string; idColumn?: number; nameColumn?: number; headerRow?: number; sheetName?: string }
+  const filePath = input.filePath ?? record.export_xlsx_path ?? record.source_xlsx_path ?? ''
+  if (!filePath) return emptyPreview(filePath, ['This class has no linked workbook. Choose an Excel workbook to continue.'])
+  const extension = path.extname(filePath).toLocaleLowerCase()
+  if (extension === '.xls') return emptyPreview(filePath, ['This is a legacy .xls file, which PASS cannot safely update. Open it in Excel, choose Save As → Excel Workbook (.xlsx), then link the .xlsx copy.'])
+  if (extension !== '.xlsx') return emptyPreview(filePath, ['Unsupported file type. Choose an Excel Workbook (.xlsx).'])
+  let buffer: Buffer
+  try { buffer = await fs.readFile(filePath) }
+  catch (error) { return emptyPreview(filePath, [fileReadMessage(error)]) }
+  const artifactWarnings = workbookArtifactWarnings(zipPartNames(buffer))
+  const workbook = new ExcelJS.Workbook()
+  try { await workbook.xlsx.load(buffer) }
+  catch (error) { return emptyPreview(filePath, [fileReadMessage(error)]) }
+  const students = db.all<StudentRecord>('SELECT id,class_id,student_id,name,sex,active FROM students WHERE class_id=? AND active=1 ORDER BY id', [input.classId])
+  if (record.grade_level || mapping.kind === 'sf2') {
+    const initial = previewSf2Workbook(workbook, { record, students, attendance: [], filePath, date: input.date, sheetName: input.sheetName, day: input.day })
+    const selectedDate = initial.date ?? input.date ?? ''
+    const attendance = selectedDate
+      ? db.all<{ student_id: string; status: AttendanceStatus }>('SELECT student_id,status FROM attendance WHERE class_id=? AND date=?', [input.classId, selectedDate])
+      : []
+    const result = previewSf2Workbook(workbook, { record, students, attendance, filePath, date: input.date, sheetName: input.sheetName, day: input.day })
+    result.warnings.push(...artifactWarnings)
+    return result
+  }
+  if (!input.date) return emptyPreview(filePath, ['Choose an attendance date.'])
+  const attendance = db.all<{ student_id: string; status: AttendanceStatus }>('SELECT student_id,status FROM attendance WHERE class_id=? AND date=?', [input.classId, input.date])
+  const result = tablePreview(workbook, { filePath, students, attendance, date: input.date, sheetName: input.sheetName, mapping })
+  result.sheets = readSpreadsheet(filePath).sheets.filter(sheet => !sheet.sf2).map(sheet => ({
+    name: sheet.name, kind: 'table', month: null, schoolYear: null, gradeLevel: null, section: null,
+    learnerCount: 0, differentSection: false, days: []
+  }))
+  result.warnings.push(...artifactWarnings)
+  return result
+}
+
+export async function updateClassWorkbook(db: PassDatabase, input: {
+  classId: string; date: string; filePath?: string; sheetName?: string; day?: number; confirmWarnings?: boolean
+}): Promise<{ savedPath: string; backupPath: string; matched: number; header: string }> {
+  const preview = await previewClassWorkbook(db, input)
+  if (preview.errors.length) throw new UserFacingError(preview.errors.join('\n'))
+  if (preview.warnings.length && !input.confirmWarnings) throw new UserFacingError('Review and confirm the export warnings before updating the workbook.')
+  const record = db.get<ClassRecord>('SELECT * FROM classes WHERE id=?', [input.classId])
+  if (!record) throw new UserFacingError('Class not found. Select a class and try again.')
+  const mapping = JSON.parse(record.col_map_json ?? '{}') as { kind?: string; idColumn?: number; sheetName?: string }
+  const workbookPath = input.filePath ?? record.export_xlsx_path ?? record.source_xlsx_path
+  if (!workbookPath) throw new UserFacingError('This class has no linked workbook. Choose an Excel workbook to continue.')
+  const students = db.all<StudentRecord>('SELECT id,class_id,student_id,name,sex,active FROM students WHERE class_id=? AND active=1 ORDER BY id', [input.classId])
+  const attendance = db.all<{ student_id: string; status: AttendanceStatus }>('SELECT student_id,status FROM attendance WHERE class_id=? AND date=?', [input.classId, preview.date ?? input.date])
+  const workbook = new ExcelJS.Workbook()
+  try { await workbook.xlsx.readFile(workbookPath) }
+  catch (error) { throw new UserFacingError(fileReadMessage(error), { cause: error }) }
+  const isSf2 = Boolean(record.grade_level || mapping.kind === 'sf2')
+  let result: { sheetName: string; matched: number; dayColumn: number; header: string; verification: Array<{ address: string; value: unknown }> }
+  if (isSf2) {
+    const updated = updateSf2Workbook(workbook, {
+      record, students, attendance, date: preview.date ?? input.date, sheetName: preview.sheet ?? undefined,
+      day: preview.day ?? undefined, filePath: workbookPath, confirmWarnings: true
+    })
+    result = {
+      ...updated,
+      header: `${updated.month} ${String(preview.day ?? Number((preview.date ?? input.date).slice(-2))).padStart(2, '0')}`,
+      verification: updated.verification
+    }
+  } else {
+    const updated = applyAttendanceColumn(workbook, {
+      sheetName: preview.sheet ?? mapping.sheetName ?? '', idColumn: mapping.idColumn!, date: preview.date ?? input.date,
+      students, statuses: statusByStudent(students, attendance)
+    })
+    const sheet = workbook.getWorksheet(updated.sheetName)!
+    result = {
+      ...updated,
+      dayColumn: updated.columnNumber,
+      verification: verificationValues(sheet)
+    }
+  }
+  const backupPath = await writeVerifiedWorkbook(workbook, workbookPath, result.sheetName, result.verification)
+  return { savedPath: workbookPath, backupPath, matched: result.matched, header: result.header }
 }
 
 export async function exportScanLogXlsx(documentsPath: string, className: string, dateFrom: string, dateTo: string): Promise<string | null> {

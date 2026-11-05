@@ -1,10 +1,22 @@
 # Changelog
 
+## Unreleased — SF2 import, roster IDs, and attendance export
+- Added a vendored SheetJS reader for `.xls` and `.xlsx` workbooks; import tests compare both anonymized SF2 fixtures and retain accented characters.
+- Added SF2 worksheet detection by report month, teacher-selectable worksheets, a simple-table fallback with worksheet/header-row selection, and generated class IDs such as `10ICT-01`.
+- Added conditional migrations for grade level, learner sex/activity, and linked `.xlsx` export paths; SF2 re-import keeps matched IDs and confirms before deactivating removed learners.
+- Added `.passroster` import/export, active-only attendance and QR rosters, and case-insensitive trimmed scan-ID lookup.
+- Added multi-sheet SF2 export with worksheet and school-day selection, preview validation, explicit warning confirmation, and protection against holiday or invalid-date updates.
+- SF2 export now writes only `x` for absent learners, clears only an existing `x` when a learner is present or late, preserves other cell contents, and counts late learners as present.
+- Added verified temporary-file writes, first-update `.bak.xlsx` backup preservation, and distinct scan-result sounds with test buttons in Settings.
+- Updated export documentation and regression coverage for multi-sheet isolation and failed-write verification. The supplied local workbook could not be tested because `tests/fixtures/local/` was not present.
+- Optional creation of a new SF2 workbook from PASS is not included.
+
 ## Unreleased — Responsive window and usability updates (2026-10-30)
 - Made the app layout adapt to smaller window sizes, including compact navigation, responsive grids/forms, and viewport-fitting dialogs.
 - Kept the camera and scan result side by side when there is enough room; stack them only on very narrow windows.
 - Extended success notification display time to 5.5 seconds.
 - Lowered the minimum Electron window size to 760×540 and added accessible names/tooltips to compact navigation buttons.
+- Styled attendance/scan-log helper notes and constrained long workbook paths so they do not enlarge text or force horizontal scrolling.
 - Verified the current source with `npm test` (14 tests), `npx tsc --noEmit`, and `npm run build`. The Windows installer still needs to be rebuilt and manually checked.
 
 ## 0.2.3 — Scanner and notification fixes (2026-10-29)

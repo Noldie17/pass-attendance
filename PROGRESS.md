@@ -1,12 +1,32 @@
 # Progress
 
+## Done — Multi-sheet SF2 export and sound feedback (2026-10-31)
+- Reproduced the production export against a copied anonymized `.xlsx` SF2 fixture with a seeded SQL.js database before implementation; this fixture export succeeds.
+- The requested `tests/fixtures/local/` directory was absent, and the original message did not include a local filename or exact app error, so the owner's workbook-specific failure could not be reproduced or diagnosed.
+- Added SF2 multi-sheet and school-day selection, a preflight review with blocking errors and confirmable warnings, x-only absence marks, old-`x` clearing for present/late learners, and totals that count late as present.
+- Added verified same-folder temporary writes with first-update backup preservation, plus regression tests for two-sheet isolation, untouched non-`x` marks, and failed verification leaving the original untouched.
+- Added distinct success/duplicate/unknown scan tones, silent cooldown scans, Settings test buttons, and unit coverage for the result-to-sound mapping.
+- Updated README, CHANGELOG, PASS User Guide, and PASS PRD. No DOCX files were edited.
+- Verification passed: `npx tsc --noEmit`; full `npm test` (31 passed, one conditional local-workbook test skipped because its folder is absent); and `npm run build`.
+
+## Done — SF2 roster import and export (2026-10-31)
+- Added a vendored SheetJS 0.20.3 package and a shared `.xls`/`.xlsx` reader; the two anonymized fixture workbooks parse identically, including both report months, all 29 learners, sex, school year, grade, section, and Ñ.
+- Added stable SF2 IDs, name-normalized re-import planning, inactive learner retention, class/student schema migrations, simple-table worksheet/header selection, `.passroster` handling, active-only counts/QR output, and case-insensitive scan IDs.
+- Added SF2 export to existing day cells, holiday/non-school-day refusals, monthly totals, summary updates, backup/lock handling, and `.xlsx` copy linking for `.xls` sources. Its old late-shading/P/L/A rules were replaced by the multi-sheet export behavior above.
+- Added import parity, fallback import, stable-ID/re-import, roster round-trip, migration, export-total, refusal, repeat-date, and changed-cell regression tests.
+- `npm ci`, `npx tsc --noEmit`, and all 25 Vitest tests passed. `npx electron-vite build` passed.
+- After the latest renderer build, `npx electron-builder --win --dir --config.win.signAndEditExecutable=false` completed the unpacked Windows package; `npx @electron/asar list release\win-unpacked\resources\app.asar` confirmed `node_modules/xlsx` is included. The default executable-edit step still requires symlink privileges on this Windows account.
+- The installer/portable targets and on-device Windows, Excel-lock, camera, and printing behavior still require verification on a Windows runner with the required privileges. Optional blank-template SF2 generation (Part 3) is not included.
+
 ## In progress — Post-v0.2.3 responsive UI updates (2026-10-30)
 - Made the renderer fit the Electron window instead of enforcing a 1050×700 CSS minimum; reduced the native minimum window size to 760×540.
 - Added responsive layouts for narrower windows: compact icon navigation, stacked content and forms, and dialogs that fit the available viewport.
 - Kept the camera and scan-result panels side by side at medium and wide sizes, stacking them only on very narrow screens.
 - Extended transient notification display time to 5.5 seconds.
 - Added accessible labels and tooltips to navigation buttons in compact mode.
-- Verification on the current working tree: `npm test` (14 tests), `npx tsc --noEmit`, and `npm run build` passed. The Windows installer has not yet been rebuilt and manually checked with these uncommitted UI updates.
+- Fixed oversized unstyled helper text in the Attendance and Scan Log tables; simplified the scan-log footer to remove the redundant full path.
+- Made the Export cards and linked workbook path shrink/wrap within the available width instead of forcing horizontal overflow.
+- Verification on the current working tree: `npm test` (14 tests), `npx tsc --noEmit`, and `npm run build` passed. The unpacked Windows package was rebuilt; NSIS/portable installers have not yet been built or manually checked with these UI updates.
 
 ## Done — v0.2.3 scanner and notification fixes (2026-10-29)
 - Fixed scans failing against existing databases that require a non-null attendance remark; blank manual remarks are also stored as empty text.
@@ -41,7 +61,7 @@
 ## Known issues / limits
 - The owner-approved React/Vite design ZIP was supplied and migrated in Phase 5B. The prototype source and PASS logo exports are preserved in `docs/ui-reference/`.
 - Per the project constraints, no Electron GUI, screenshots, browser, webcam, Excel lock, printing, or Windows installer execution was tested. The `.exe` files must be built on Windows via the workflow and checked on a clean Windows laptop using `HARDWARE_TEST.md`.
-- npm reported dependency audit findings after pinned dependencies were installed (22 findings on the final install). No forced audit upgrades were applied to avoid unreviewed stack changes.
+- `npm ci` reported 39 dependency audit findings. No forced audit upgrades were applied because dependency changes beyond the requested local SheetJS tarball are out of scope.
 
 ## Done — Phase 5 (documentation)
 - Added `/docs/PASS_PRD.md` and `/docs/PASS_PRD.docx`, covering the requested requirements, architecture, risks, release plan, not-yet-implemented items, and deviations based on project files.

@@ -42,10 +42,10 @@ describe('attendance scan with existing database schema', () => {
     } as unknown as PassDatabase
     const service = new AttendanceService(db, new SettingsService(db), new PinService(db))
 
-    const result = await service.scan({ classId: 'class-1', payload: 'student-1', source: 'webcam' })
+    const result = await service.scan({ classId: 'class-1', payload: ' PASS|STUDENT-1 ', source: 'webcam' })
 
     expect(result.code).toBe('recorded')
-    expect(sqlite.exec('SELECT remark FROM attendance')[0].values).toEqual([['']])
+    expect(sqlite.exec('SELECT student_id,remark FROM attendance')[0].values).toEqual([['student-1', '']])
     sqlite.close()
   })
 
@@ -74,6 +74,6 @@ describe('attendance scan with existing database schema', () => {
     vi.advanceTimersByTime(1_000)
     expect((await scan()).code).toBe('cooldown-ignored')
     vi.advanceTimersByTime(4_000)
-    expect((await scan()).code).toBe('already-recorded')
+    expect((await service.scan({ classId: 'class-1', payload: 'STUDENT-1', source: 'webcam' })).code).toBe('already-recorded')
   })
 })

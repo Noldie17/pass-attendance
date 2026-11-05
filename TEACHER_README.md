@@ -3,8 +3,8 @@
 ## First launch
 1. Install **PASS Attendance** or run the portable `.exe` provided by the school.
 2. Start the app and select **Import a class**.
-3. Choose the class `.xlsx` file. Confirm the Student ID and Name columns, enter class details, and import.
-4. Keep the source workbook in a place you can access later; PASS stores attendance locally and keeps a backup before updating the class record.
+3. Choose the class SF2 `.xls` or `.xlsx`. PASS previews the detected month, learners, generated IDs, and sex; select another SF2 worksheet if needed. A simple roster table is also supported as a fallback.
+4. Keep the original workbook in a place you can access later. PASS stores attendance locally and creates a `.bak.xlsx` backup before updating an `.xlsx` class record.
 
 ## Record attendance
 1. Select the class at the top of the window and open **Scan**.
@@ -15,7 +15,9 @@
 ## Exports and records
 - **Scan Log** shows an append-only record of scan attempts and can export a date range to Excel.
 - **QR Codes** lets you select students and print their QR cards or save a PDF sheet.
-- **Export** appends the selected date’s P/L/A column to the original class workbook. Close the workbook in Excel first. PASS creates a `.bak.xlsx` copy before its first update.
+- **Students** can export/import a `.passroster` file. It contains student names, so share it carefully.
+- **Export** updates the selected date in the SF2's existing day column and refreshes totals. Close the workbook in Excel first. PASS creates a `.bak.xlsx` copy before its first update.
+- PASS never edits legacy `.xls` files. In Excel, use **Save As → Excel Workbook (.xlsx)**, then use **Link .xlsx copy** on Export.
 - Attendance data is stored on this computer. Scan proof is in `Documents\PASS\<class>\scan-log.csv`.
 
 ## Need help?

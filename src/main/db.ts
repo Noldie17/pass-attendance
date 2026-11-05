@@ -27,11 +27,12 @@ export class PassDatabase {
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS classes (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, section TEXT NOT NULL, subject TEXT NOT NULL,
-        school_year TEXT NOT NULL, source_xlsx_path TEXT, col_map_json TEXT
+        school_year TEXT NOT NULL, source_xlsx_path TEXT, col_map_json TEXT,
+        grade_level TEXT NOT NULL DEFAULT '', export_xlsx_path TEXT
       );
       CREATE TABLE IF NOT EXISTS students (
         id INTEGER PRIMARY KEY AUTOINCREMENT, class_id TEXT NOT NULL,
-        student_id TEXT NOT NULL, name TEXT NOT NULL,
+        student_id TEXT NOT NULL, name TEXT NOT NULL, sex TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1,
         UNIQUE(class_id, student_id), FOREIGN KEY(class_id) REFERENCES classes(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS attendance (
@@ -43,7 +44,16 @@ export class PassDatabase {
       );
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `)
+    await this.addColumnIfMissing('classes', 'grade_level', "TEXT NOT NULL DEFAULT ''")
+    await this.addColumnIfMissing('classes', 'export_xlsx_path', 'TEXT')
+    await this.addColumnIfMissing('students', 'sex', "TEXT NOT NULL DEFAULT ''")
+    await this.addColumnIfMissing('students', 'active', 'INTEGER NOT NULL DEFAULT 1')
     await this.persist()
+  }
+
+  private async addColumnIfMissing(table: string, column: string, definition: string): Promise<void> {
+    const columns = this.all<{ name: string }>(`PRAGMA table_info(${table})`)
+    if (!columns.some(item => item.name === column)) this.database.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
   }
 
   all<T extends object>(sql: string, params: unknown[] = []): T[] {

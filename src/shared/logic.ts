@@ -26,14 +26,15 @@ export function parseStudentId(payload: string): string {
 
 export interface StudentImportRow { studentId: string; name: string }
 
-export function mapImportRows(rows: unknown[][], idColumn: number, nameColumn: number): { valid: StudentImportRow[]; errors: string[] } {
+export function mapImportRows(rows: unknown[][], idColumn: number, nameColumn: number, headerRow = 1): { valid: StudentImportRow[]; errors: string[] } {
   const valid: StudentImportRow[] = []
   const errors: string[] = []
   const seen = new Set<string>()
   rows.forEach((row, index) => {
     const studentId = String(row[idColumn] ?? '').trim()
     const name = String(row[nameColumn] ?? '').trim()
-    const rowNumber = index + 2
+    const rowNumber = index + headerRow + 1
+    if (!studentId && !name) return
     if (!studentId) { errors.push(`Row ${rowNumber}: Student ID is empty.`); return }
     if (!name) { errors.push(`Row ${rowNumber}: Name is empty.`); return }
     if (seen.has(studentId)) { errors.push(`Row ${rowNumber}: duplicate Student ID "${studentId}".`); return }

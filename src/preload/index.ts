@@ -7,8 +7,12 @@ const api: PassApi = {
     create: input => ipcRenderer.invoke('classes:create', input),
     update: (classId, patch) => ipcRenderer.invoke('classes:update', classId, patch),
     chooseImportFile: () => ipcRenderer.invoke('classes:choose-import'),
-    importPreview: filePath => ipcRenderer.invoke('classes:preview-import', filePath),
+    chooseXlsxCopy: () => ipcRenderer.invoke('classes:choose-xlsx-copy'),
+    importPreview: (filePath, sheetName, headerRow) => ipcRenderer.invoke('classes:preview-import', filePath, sheetName, headerRow),
     importClass: input => ipcRenderer.invoke('classes:import', input),
+    linkXlsxCopy: (classId, filePath) => ipcRenderer.invoke('classes:link-xlsx-copy', classId, filePath),
+    exportRoster: classId => ipcRenderer.invoke('classes:export-roster', classId),
+    importRoster: () => ipcRenderer.invoke('classes:import-roster'),
     delete: classId => ipcRenderer.invoke('classes:delete', classId)
   },
   students: { list: classId => ipcRenderer.invoke('students:list', classId) },
@@ -22,6 +26,7 @@ const api: PassApi = {
     exportXlsx: input => ipcRenderer.invoke('scan-log:export-xlsx', input)
   },
   exports: {
+    previewClassRecord: input => ipcRenderer.invoke('exports:preview-class-record', input),
     updateClassRecord: input => ipcRenderer.invoke('exports:update-class-record', input),
     outputQrSheet: input => ipcRenderer.invoke('exports:output-qr-sheet', input)
   },

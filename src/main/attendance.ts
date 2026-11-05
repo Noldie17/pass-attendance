@@ -19,7 +19,7 @@ export class AttendanceService {
     return this.db.all<AttendanceViewRow>(`SELECT s.student_id,s.name,COALESCE(a.status,'A') AS status,
       CASE WHEN a.student_id IS NULL THEN 0 ELSE 1 END AS recorded,a.time_in,a.source,a.remark
       FROM students s LEFT JOIN attendance a ON a.class_id=s.class_id AND a.student_id=s.student_id AND a.date=?
-      WHERE s.class_id=? ORDER BY s.name COLLATE NOCASE`, [date, classId]).map(row => ({ ...row, recorded: Boolean(row.recorded) }))
+      WHERE s.class_id=? AND s.active=1 ORDER BY s.name COLLATE NOCASE`, [date, classId]).map(row => ({ ...row, recorded: Boolean(row.recorded) }))
   }
 
   async setManual(input: { classId: string; studentId: string; date: string; status: AttendanceStatus; remark: string; pin?: string }): Promise<void> {
@@ -39,26 +39,27 @@ export class AttendanceService {
     const studentId = parseStudentId(input.payload)
     const classRecord = this.db.get<{ id: string; name: string }>('SELECT id,name FROM classes WHERE id=?', [input.classId])
     if (!classRecord) throw new Error('Select a class before scanning.')
-    const lookup = this.db.get<StudentLookup>('SELECT students.student_id,students.name,classes.name AS class_name FROM students JOIN classes ON classes.id=students.class_id WHERE students.class_id=? AND students.student_id=?', [input.classId, studentId])
-    const cooldownKey = `${input.classId}:${studentId}`, nowMs = now.getTime()
+    const lookup = this.db.get<StudentLookup>('SELECT students.student_id,students.name,classes.name AS class_name FROM students JOIN classes ON classes.id=students.class_id WHERE students.class_id=? AND students.active=1 AND lower(students.student_id)=lower(?)', [input.classId, studentId])
+    const canonicalStudentId = lookup?.student_id ?? studentId
+    const cooldownKey = `${input.classId}:${canonicalStudentId.toLocaleLowerCase()}`, nowMs = now.getTime()
     if (isWithinCooldown(this.lastScan.get(cooldownKey), nowMs, this.settings.get().cooldown_sec)) {
-      await this.log(classRecord.name, { timestampIso, date, time, studentId, name: lookup?.name ?? '', className: classRecord.name, source: input.source, result: 'ignored-cooldown' })
-      return { code: 'cooldown-ignored', studentId, name: lookup?.name ?? null, status: null, time: null, message: '' }
+      await this.log(classRecord.name, { timestampIso, date, time, studentId: canonicalStudentId, name: lookup?.name ?? '', className: classRecord.name, source: input.source, result: 'ignored-cooldown' })
+      return { code: 'cooldown-ignored', studentId: canonicalStudentId, name: lookup?.name ?? null, status: null, time: null, message: '' }
     }
     this.lastScan.set(cooldownKey, nowMs)
     if (!lookup) {
       await this.log(classRecord.name, { timestampIso, date, time, studentId, name: '', className: classRecord.name, source: input.source, result: 'not-found' })
       return { code: 'not-found', studentId, name: null, status: null, time: null, message: 'ID not in this class' }
     }
-    const existing = this.db.get<{ status: AttendanceStatus; time_in: string | null }>('SELECT status,time_in FROM attendance WHERE class_id=? AND student_id=? AND date=?', [input.classId, studentId, date])
+    const existing = this.db.get<{ status: AttendanceStatus; time_in: string | null }>('SELECT status,time_in FROM attendance WHERE class_id=? AND student_id=? AND date=?', [input.classId, canonicalStudentId, date])
     if (existing) {
-      await this.log(classRecord.name, { timestampIso, date, time, studentId, name: lookup.name, className: classRecord.name, source: input.source, result: `already-recorded:${existing.status}` })
-      return { code: 'already-recorded', studentId, name: lookup.name, status: existing.status, time: existing.time_in, message: `Already recorded at ${existing.time_in ?? '--:--'}` }
+      await this.log(classRecord.name, { timestampIso, date, time, studentId: canonicalStudentId, name: lookup.name, className: classRecord.name, source: input.source, result: `already-recorded:${existing.status}` })
+      return { code: 'already-recorded', studentId: canonicalStudentId, name: lookup.name, status: existing.status, time: existing.time_in, message: `Already recorded at ${existing.time_in ?? '--:--'}` }
     }
     const status = decideAttendance({ now, lateCutoff: this.settings.get().late_cutoff, alreadyRecorded: false }) as AttendanceStatus
-    await this.db.write(database => database.run('INSERT INTO attendance(class_id,student_id,date,status,time_in,source,remark) VALUES(?,?,?,?,?,?,?)', [input.classId, studentId, date, status, time, input.source, '']))
-    await this.log(classRecord.name, { timestampIso, date, time, studentId, name: lookup.name, className: classRecord.name, source: input.source, result: `recorded:${status}` })
-    return { code: 'recorded', studentId, name: lookup.name, status, time, message: status === 'L' ? 'Late' : 'Present' }
+    await this.db.write(database => database.run('INSERT INTO attendance(class_id,student_id,date,status,time_in,source,remark) VALUES(?,?,?,?,?,?,?)', [input.classId, canonicalStudentId, date, status, time, input.source, '']))
+    await this.log(classRecord.name, { timestampIso, date, time, studentId: canonicalStudentId, name: lookup.name, className: classRecord.name, source: input.source, result: `recorded:${status}` })
+    return { code: 'recorded', studentId: canonicalStudentId, name: lookup.name, status, time, message: status === 'L' ? 'Late' : 'Present' }
   }
   private async log(className: string, row: Parameters<typeof appendScanLog>[2]): Promise<void> {
     await appendScanLog(app.getPath('documents'), className, row)

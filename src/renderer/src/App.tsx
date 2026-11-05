@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import jsQR from 'jsqr'
-import type { AppSettings, AttendanceStatus, AttendanceViewRow, ClassRecord, ImportPreview, ScanLogEntry, ScanResult, StudentRecord } from '@shared/types'
+import type { AppSettings, AttendanceStatus, AttendanceViewRow, ClassRecord, ClassRecordExportPreview, ImportPreview, ScanLogEntry, ScanResult, ScanSound, StudentRecord } from '@shared/types'
+import { getUserFacingMessage } from '@shared/errors'
+import { scanResultSound } from '@shared/sounds'
 
 type Screen = 'scan' | 'attendance' | 'students' | 'scan-log' | 'qr-codes' | 'export' | 'settings'
 const screens: Array<{ id: Screen; label: string; glyph: string }> = [
@@ -10,7 +12,7 @@ const screens: Array<{ id: Screen; label: string; glyph: string }> = [
   { id: 'settings', label: 'Settings', glyph: 'settings' }
 ]
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
-const messageOf = (error: unknown) => error instanceof Error ? error.message : String(error)
+const messageOf = getUserFacingMessage
 const statusLabel = (status: AttendanceStatus) => status === 'P' ? 'Present' : status === 'L' ? 'Late' : 'Absent'
 
 export default function App() {
@@ -35,6 +37,7 @@ export default function App() {
   const [logFrom, setLogFrom] = useState(today())
   const [logTo, setLogTo] = useState(today())
   const [selectedQrIds, setSelectedQrIds] = useState<Set<string>>(new Set())
+  const audioContextRef = useRef<AudioContext | null>(null)
 
   const activeClass = classes.find(item => item.id === activeClassId) ?? null
   const reloadClasses = useCallback(async () => {
@@ -71,30 +74,62 @@ export default function App() {
     return () => window.clearTimeout(id)
   }, [toast])
 
-  const playBeep = useCallback(() => {
-    if (!settings.sound) return
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) audioContextRef.current = new window.AudioContext()
+    return audioContextRef.current
+  }, [])
+  useEffect(() => {
+    const resumeAudio = () => {
+      const context = getAudioContext()
+      if (context.state === 'suspended') void context.resume()
+    }
+    window.addEventListener('pointerdown', resumeAudio, { once: true })
+    window.addEventListener('keydown', resumeAudio, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', resumeAudio)
+      window.removeEventListener('keydown', resumeAudio)
+    }
+  }, [getAudioContext])
+  const playSound = useCallback((sound: ScanSound) => {
+    if (!sound) return
     try {
-      const AudioContextClass = window.AudioContext
-      const context = new AudioContextClass()
-      const oscillator = context.createOscillator(), gain = context.createGain()
-      oscillator.type = 'sine'; oscillator.frequency.value = 880; gain.gain.value = 0.08
-      oscillator.connect(gain); gain.connect(context.destination); oscillator.start(); oscillator.stop(context.currentTime + 0.12)
-      oscillator.onended = () => { void context.close() }
+      const context = getAudioContext()
+      if (context.state === 'suspended') void context.resume()
+      const tone = (start: number, frequency: number, duration: number, endFrequency?: number) => {
+        const oscillator = context.createOscillator()
+        const gain = context.createGain()
+        oscillator.type = sound === 'unknown' ? 'sawtooth' : 'sine'
+        oscillator.frequency.setValueAtTime(frequency, start)
+        if (endFrequency) oscillator.frequency.exponentialRampToValueAtTime(endFrequency, start + duration)
+        gain.gain.setValueAtTime(0.0001, start)
+        gain.gain.exponentialRampToValueAtTime(0.07, start + 0.012)
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration)
+        oscillator.connect(gain); gain.connect(context.destination)
+        oscillator.start(start); oscillator.stop(start + duration)
+      }
+      if (sound === 'success') tone(context.currentTime, 880, 0.12)
+      if (sound === 'duplicate') {
+        tone(context.currentTime, 560, 0.09)
+        tone(context.currentTime + 0.16, 560, 0.09)
+      }
+      if (sound === 'unknown') tone(context.currentTime, 260, 0.42, 110)
     } catch { /* sound is an optional cue; scan state remains authoritative */ }
-  }, [settings.sound])
+  }, [getAudioContext])
+  const testSound = useCallback((sound: Exclude<ScanSound, null>) => playSound(sound), [playSound])
   const handleScan = useCallback(async (payload: string, source: 'webcam' | 'manual') => {
     if (!activeClassId || busy) return
     setBusy(true)
     try {
       const result = await window.pass.attendance.scan({ classId: activeClassId, payload, source })
       if (result.code !== 'cooldown-ignored') setLastResult(result)
-      if (result.code === 'recorded') { playBeep(); setToast(`${result.name}: ${result.message}`) }
+      if (settings.sound) playSound(scanResultSound(result.code))
+      if (result.code === 'recorded') setToast(`${result.name}: ${result.message}`)
       if (result.code === 'already-recorded') setToast(result.message)
       if (result.code === 'not-found') setToast(result.message)
       await reloadScreenData(activeClassId)
     } catch (reason) { setError(messageOf(reason)) }
     finally { setBusy(false) }
-  }, [activeClassId, busy, playBeep, reloadScreenData])
+  }, [activeClassId, busy, playSound, reloadScreenData, settings.sound])
   const refreshAll = useCallback(async () => {
     await reloadClasses()
     if (activeClassId) await reloadScreenData(activeClassId)
@@ -141,11 +176,38 @@ export default function App() {
       if (filePath) setToast(`Scan log exported: ${filePath}`)
     } catch (reason) { setError(messageOf(reason)) }
   }
-  async function updateWorkbook() {
+  async function exportRoster() {
     try {
-      const result = await window.pass.exports.updateClassRecord({ classId: activeClassId, date })
-      setToast(`Updated ${result.header} column · ${result.matched} students. Backup: ${result.backupPath}`)
+      const filePath = await window.pass.classes.exportRoster(activeClassId)
+      if (filePath) setToast(`Roster exported: ${filePath}`)
     } catch (reason) { setError(messageOf(reason)) }
+  }
+  async function importRoster() {
+    try {
+      const record = await window.pass.classes.importRoster()
+      if (record) {
+        await reloadClasses()
+        setActiveClassId(record.id)
+        await reloadScreenData(record.id)
+        setToast(`Roster imported: ${record.name}`)
+      }
+    } catch (reason) { setError(messageOf(reason)) }
+  }
+  async function linkXlsxCopy() {
+    try {
+      const filePath = await window.pass.classes.chooseXlsxCopy()
+      if (!filePath) return
+      const record = await window.pass.classes.linkXlsxCopy(activeClassId, filePath)
+      await reloadClasses()
+      setToast(`Linked .xlsx copy: ${record.export_xlsx_path}`)
+    } catch (reason) { setError(messageOf(reason)) }
+  }
+  async function updateWorkbook(input: { date: string; sheetName?: string; day?: number; confirmWarnings: boolean }): Promise<boolean> {
+    try {
+      const result = await window.pass.exports.updateClassRecord({ classId: activeClassId, ...input })
+      setToast(`Updated ${result.header} column · ${result.matched} students. Backup: ${result.backupPath}`)
+      return true
+    } catch (reason) { setError(messageOf(reason)); return false }
   }
   async function outputQr(mode: 'print' | 'pdf') {
     try {
@@ -169,16 +231,16 @@ export default function App() {
           <option value="__new__">+ New class</option>
         </select></div><div className="class-avatar">{activeClass?.section?.slice(0, 2) || '—'}</div></div>
       </header>
+      {error && <Alert text={error} onClose={() => setError('')} />}
       <div className="content">
         {!activeClass && classes.length === 0 ? <EmptyState importClass={() => setShowImport(true)} /> : <div className="page">
-          {error && <Alert text={error} onClose={() => setError('')} />}
           {screen === 'scan' && <ScanPage activeClassId={activeClassId} active={screen === 'scan'} settings={settings} devices={cameraDevices} onDevices={setCameraDevices} result={lastResult} recent={recent} attendance={attendance} stats={summary} busy={busy} onScan={handleScan} onImport={() => setShowImport(true)} />}
           {screen === 'attendance' && <AttendancePage rows={visibleAttendance} query={query} onQuery={setQuery} filter={filter} onFilter={setFilter} stats={summary} onEdit={setEditTarget} date={date} onDate={setDate} />}
-          {screen === 'students' && <StudentsPage students={students} onImport={() => setShowImport(true)} onQr={() => setScreen('qr-codes')} />}
+          {screen === 'students' && <StudentsPage students={students} onImport={() => setShowImport(true)} onQr={() => setScreen('qr-codes')} onRosterImport={() => void importRoster()} onRosterExport={() => void exportRoster()} />}
           {screen === 'scan-log' && <ScanLogPage rows={logs} dateFrom={logFrom} dateTo={logTo} onDateFrom={setLogFrom} onDateTo={setLogTo} onExport={() => void exportLogXlsx()} />}
           {screen === 'qr-codes' && <QrCodesPage students={students} selected={selectedQrIds} setSelected={setSelectedQrIds} onPrint={() => void outputQr('print')} onSavePdf={() => void outputQr('pdf')} />}
-          {screen === 'export' && <ExportPage record={activeClass!} rows={attendance} date={date} onDate={setDate} onUpdate={() => void updateWorkbook()} logFrom={logFrom} logTo={logTo} onLogFrom={setLogFrom} onLogTo={setLogTo} onExportLog={() => void exportLogXlsx()} />}
-          {screen === 'settings' && <SettingsPage activeClass={activeClass!} classes={classes} settings={settings} devices={cameraDevices} onSaveSettings={async patch => { const next = await window.pass.settings.save(patch); setSettings(next); setToast('Settings saved') }} onSetPin={async value => { await window.pass.settings.setPin(value); setSettings(await window.pass.settings.get()); setToast(value ? 'PIN enabled' : 'PIN disabled') }} onUpdateClass={async patch => { const updated = await window.pass.classes.update(activeClassId, patch); await reloadClasses(); setToast('Class details saved'); return updated }} onDeleteClass={deleteClass} onSelectClass={setActiveClassId} />}
+          {screen === 'export' && <ExportPage record={activeClass!} rows={attendance} date={date} onDate={setDate} onUpdate={updateWorkbook} onLinkXlsx={() => void linkXlsxCopy()} logFrom={logFrom} logTo={logTo} onLogFrom={setLogFrom} onLogTo={setLogTo} onExportLog={() => void exportLogXlsx()} onError={setError} />}
+          {screen === 'settings' && <SettingsPage activeClass={activeClass!} classes={classes} settings={settings} devices={cameraDevices} onSaveSettings={async patch => { const next = await window.pass.settings.save(patch); setSettings(next); setToast('Settings saved') }} onSetPin={async value => { await window.pass.settings.setPin(value); setSettings(await window.pass.settings.get()); setToast(value ? 'PIN enabled' : 'PIN disabled') }} onUpdateClass={async patch => { const updated = await window.pass.classes.update(activeClassId, patch); await reloadClasses(); setToast('Class details saved'); return updated }} onDeleteClass={deleteClass} onSelectClass={setActiveClassId} onTestSound={testSound} />}
         </div>}
       </div>
     </main>
@@ -313,10 +375,11 @@ function AttendancePage({ rows, query, onQuery, filter, onFilter, stats, onEdit,
   </div>
 }
 
-function StudentsPage({ students, onImport, onQr }: { students: StudentRecord[]; onImport: () => void; onQr: () => void }) {
+function StudentsPage({ students, onImport, onQr, onRosterImport, onRosterExport }: { students: StudentRecord[]; onImport: () => void; onQr: () => void; onRosterImport: () => void; onRosterExport: () => void }) {
   const [query, setQuery] = useState('')
   const filtered = students.filter(student => `${student.name} ${student.student_id}`.toLowerCase().includes(query.trim().toLowerCase()))
-  return <div className="page"><PageHead title="Students" sub={`${students.length} students in the active class.`} actions={<Button icon="users" onClick={onImport}>Import class</Button>} />
+  return <div className="page"><PageHead title="Students" sub={`${students.length} active students in the current class.`} actions={<><Button variant="secondary" onClick={onRosterImport}>Import roster</Button><Button variant="secondary" onClick={onRosterExport}>Export roster</Button><Button icon="users" onClick={onImport}>Import class</Button></>} />
+    <div className="notice"><Icon name="users" size={17} /><span>Roster files contain student names and should be shared carefully.</span></div>
     <section className="card table-card"><div className="toolbar"><div className="muted-label">CLASS LIST</div><label className="search"><Icon name="search" size={17} /><input aria-label="Search students" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search students..." /></label></div>
       <Table headers={['ID No.', 'Student name', 'QR code']} rows={filtered.map((student, index) => [student.student_id, <div className="student-cell"><div className="avatar">{student.name.trim().split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase() || '—'}</div><b>{student.name}</b></div>, <button className="qr-preview" onClick={onQr} aria-label={`Open QR codes for ${student.name}`}><Icon name="qr" size={17} /> QR codes</button>])} />
       {filtered.length === 0 && <EmptyInTable text={students.length ? 'No students match your search.' : 'No students in this class yet. Import a class spreadsheet to add the roster.'} />}
@@ -329,7 +392,7 @@ function ScanLogPage({ rows, dateFrom, dateTo, onDateFrom, onDateTo, onExport }:
     <div className="notice"><Icon name="list" size={17} /><span><strong>Audit record</strong> Entries cannot be edited or deleted.</span></div>
     <section className="card table-card"><div className="toolbar"><div className="range"><label>From<input type="date" value={dateFrom} onChange={event => onDateFrom(event.target.value)} aria-label="Scan log start date" /></label><span>to</span><label>To<input type="date" value={dateTo} onChange={event => onDateTo(event.target.value)} aria-label="Scan log end date" /></label></div><label className="search"><Icon name="search" size={17} /><input aria-label="Search scan log" placeholder="Search ID or name..." /></label></div>
       <Table headers={['Student ID', 'Name', 'Date', 'Time', 'Scan source', 'Result']} rows={rows.map((row, index) => [row.student_id || '—', <b>{row.name || '—'}</b>, row.date, row.time, row.source, <span className={`log-result ${row.result.startsWith('recorded') ? 'good' : row.result === 'not-found' ? 'bad' : ''}`}>{row.result}</span>])} />
-      {rows.length === 0 && <EmptyInTable text="No scan attempts found for this date range." />}<div className="table-foot">Rows cannot be edited or deleted here. CSV source: Documents\PASS\{rows[0]?.class || 'class'}\scan-log.csv</div>
+      {rows.length === 0 && <EmptyInTable text="No scan attempts found for this date range." />}<div className="table-foot">Read-only scan history. Log files are stored in Documents\PASS.</div>
     </section>
   </div>
 }
@@ -346,26 +409,131 @@ function QrCodesPage({ students, selected, setSelected, onPrint, onSavePdf }: { 
   </div>
 }
 
-function ExportPage({ record, rows, date, onDate, onUpdate, logFrom, logTo, onLogFrom, onLogTo, onExportLog }: { record: ClassRecord; rows: AttendanceViewRow[]; date: string; onDate: (value: string) => void; onUpdate: () => void; logFrom: string; logTo: string; onLogFrom: (value: string) => void; onLogTo: (value: string) => void; onExportLog: () => void }) {
+function ExportPage({ record, rows, date, onDate, onUpdate, onLinkXlsx, logFrom, logTo, onLogFrom, onLogTo, onExportLog, onError }: {
+  record: ClassRecord
+  rows: AttendanceViewRow[]
+  date: string
+  onDate: (value: string) => void
+  onUpdate: (input: { date: string; sheetName?: string; day?: number; confirmWarnings: boolean }) => Promise<boolean>
+  onLinkXlsx: () => void
+  logFrom: string
+  logTo: string
+  onLogFrom: (value: string) => void
+  onLogTo: (value: string) => void
+  onExportLog: () => void
+  onError: (message: string) => void
+}) {
+  const [preview, setPreview] = useState<ClassRecordExportPreview | null>(null)
+  const [sheetName, setSheetName] = useState('')
+  const [selectedDay, setSelectedDay] = useState('')
+  const [loadingPreview, setLoadingPreview] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmWarnings, setConfirmWarnings] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const requestId = useRef(0)
   const present = rows.filter(row => row.status === 'P').length, late = rows.filter(row => row.status === 'L').length, absent = rows.filter(row => row.status === 'A').length
+  const workbookPath = record.export_xlsx_path ?? record.source_xlsx_path
+  const workbookType = workbookPath?.toLocaleLowerCase().endsWith('.xls') && !workbookPath?.toLocaleLowerCase().endsWith('.xlsx') ? 'XLS' : 'XLSX'
+  const needsXlsxCopy = Boolean(record.source_xlsx_path?.toLocaleLowerCase().endsWith('.xls') && !record.export_xlsx_path)
+  const isSf2 = Boolean(record.grade_level)
+  useEffect(() => {
+    setPreview(null); setSheetName(''); setSelectedDay(''); setConfirmOpen(false)
+  }, [record.id, workbookPath])
+  useEffect(() => {
+    if (!workbookPath) { setPreview(null); return }
+    let active = true
+    const id = ++requestId.current
+    setLoadingPreview(true)
+    window.pass.exports.previewClassRecord({
+      classId: record.id, filePath: workbookPath, date,
+      ...(sheetName ? { sheetName } : {}),
+      ...(selectedDay ? { day: Number(selectedDay) } : {})
+    }).then(result => {
+      if (!active || id !== requestId.current) return
+      setPreview(result)
+      if (result.kind === 'sf2') {
+        if (!sheetName && result.sheet) setSheetName(result.sheet)
+        const selected = result.sheets.find(sheet => sheet.name === (sheetName || result.sheet))
+        if (selected) {
+          const currentDay = selectedDay ? selected.days.find(item => item.day === Number(selectedDay)) : undefined
+          const dateMonth = Number(date.slice(5, 7))
+          const expectedMonth = selected.month ? new Date(`${selected.month} 1, 2000`).getMonth() + 1 : -1
+          const day = currentDay && !currentDay.holiday && dateMonth === expectedMonth
+            ? currentDay
+            : selected.days.find(item => !item.holiday)
+          if (day && (!selectedDay || !currentDay || currentDay.holiday || dateMonth !== expectedMonth)) {
+            setSelectedDay(String(day.day))
+            if (day.date !== date) onDate(day.date)
+          }
+        }
+      } else if (result.kind === 'table' && !sheetName && result.sheet) {
+        setSheetName(result.sheet)
+      }
+    }).catch(reason => {
+      if (active && id === requestId.current) onError(messageOf(reason))
+    }).finally(() => {
+      if (active && id === requestId.current) setLoadingPreview(false)
+    })
+    return () => { active = false }
+  }, [record.id, workbookPath, date, sheetName, selectedDay, onDate, onError])
+  const selectedSheet = preview?.sheets.find(sheet => sheet.name === (sheetName || preview.sheet))
+  const warningConfirmationRequired = Boolean(preview?.warnings.length)
+  async function submitUpdate() {
+    if (!preview || preview.errors.length || (warningConfirmationRequired && !confirmWarnings)) return
+    setSaving(true)
+    try {
+      const completed = await onUpdate({
+        date: preview.date ?? date,
+        ...(preview.sheet ? { sheetName: preview.sheet } : {}),
+        ...(preview.day !== null ? { day: preview.day } : {}),
+        confirmWarnings: true
+      })
+      if (completed) setConfirmOpen(false)
+    } finally { setSaving(false) }
+  }
   return <div className="page"><PageHead title="Export" sub="Save attendance records to your computer." />
     <div className="export-grid">
-      <ExportCard icon="calendar" title="Update class record (.xlsx)" text="Write attendance status into your original class record format.">
-        <label>Attendance date<input type="date" value={date} onChange={event => onDate(event.target.value)} aria-label="Attendance date" /></label>
-        <div className="source-file"><span className="file-icon">XLSX</span><div><strong>{record.source_xlsx_path ? record.source_xlsx_path.split(/[\\/]/).pop() : 'No source workbook linked'}</strong><small>{record.source_xlsx_path || 'Import an .xlsx file to link the original class record.'}</small></div></div>
+      <ExportCard icon="calendar" title={record.grade_level ? 'Update SF2 class record' : 'Update class record'} text="Write attendance into the selected date column of the linked class record.">
+        <div className="source-file"><span className="file-icon">{workbookType}</span><div><strong>{workbookPath ? workbookPath.split(/[\\/]/).pop() : 'No source workbook linked'}</strong><small>{workbookPath || 'Choose a workbook to link the class record.'}</small></div><Button variant="secondary" onClick={onLinkXlsx}>{workbookPath ? 'Change file' : 'Choose file'}</Button></div>
+        {needsXlsxCopy && <p className="section-sub">This class was imported from a legacy .xls file. In Excel, choose Save As → Excel Workbook (.xlsx); link that copy here. PASS will update the linked copy and leave the .xls original unchanged.</p>}
+        {isSf2 && preview?.kind === 'sf2' && <div className="export-selectors">
+          <label>SF2 sheet<select value={sheetName || preview.sheet || ''} onChange={event => { setSheetName(event.target.value); setSelectedDay('') }}>{preview.sheets.map(sheet => <option key={sheet.name} value={sheet.name}>{sheet.month} · {sheet.schoolYear} · Grade {sheet.gradeLevel} · {sheet.section}{sheet.differentSection ? ' · different section' : ''} ({sheet.learnerCount})</option>)}</select></label>
+          <label>School day<select value={selectedDay || (preview.day === null ? '' : String(preview.day))} onChange={event => {
+            const day = selectedSheet?.days.find(item => item.day === Number(event.target.value))
+            if (!day) return
+            setSelectedDay(String(day.day)); onDate(day.date)
+          }}>{selectedSheet?.days.map(item => <option key={`${item.day}-${item.column}`} value={item.day} disabled={item.holiday}>{selectedSheet.month?.slice(0, 3)} {item.day}{item.holiday ? ' · Holiday' : ''}</option>)}</select></label>
+        </div>}
+        {!isSf2 && <><label>Attendance date<input type="date" value={date} onChange={event => onDate(event.target.value)} aria-label="Attendance date" /></label>
+          {preview?.kind === 'table' && <label>Worksheet<select value={sheetName || preview.sheet || ''} onChange={event => setSheetName(event.target.value)}>{preview.sheets.map(sheet => <option key={sheet.name} value={sheet.name}>{sheet.name}</option>)}</select></label>}
+        </>}
+        {preview?.errors.map(text => <div className="form-error" role="alert" key={text}>{text}</div>)}
+        {preview?.warnings.map(text => <div className="export-warning" role="status" key={text}>{text}</div>)}
         <div className="export-preview"><span>{rows.length} students</span><span>{present} Present</span><span>{late} Late</span><span>{absent} Absent</span></div>
-        <Button icon="export" disabled={!record.source_xlsx_path} onClick={onUpdate}>Update &amp; save file</Button>
+        <Button icon="export" disabled={!preview || loadingPreview || saving} onClick={() => { setConfirmWarnings(false); setConfirmOpen(true) }}>{loadingPreview ? 'Checking workbook…' : 'Review update'}</Button>
       </ExportCard>
       <ExportCard icon="list" title="Export scan log (.xlsx)" text="Save the append-only scan history for a date range.">
         <div className="two-dates"><label>From<input type="date" value={logFrom} onChange={event => onLogFrom(event.target.value)} /></label><label>To<input type="date" value={logTo} onChange={event => onLogTo(event.target.value)} /></label></div>
         <Button icon="export" disabled={logFrom > logTo} onClick={onExportLog}>Export scan log</Button>
       </ExportCard>
     </div>
+    {confirmOpen && preview && <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmOpen(false) }}>
+      <section className="modal export-confirm" role="dialog" aria-modal="true" aria-labelledby="export-confirm-title">
+        <div className="modal-head"><div><h2 id="export-confirm-title">Confirm attendance update</h2><p>{preview.sheet} · {preview.month ?? ''} {preview.day ?? ''} · {preview.date ?? date}</p></div><button className="icon-button" aria-label="Close update preview" onClick={() => setConfirmOpen(false)}><Icon name="close" /></button></div>
+        {preview.errors.map(text => <div className="form-error" role="alert" key={text}>{text}</div>)}
+        <div className="confirm-summary"><span>Will mark absent<strong>{preview.willMarkAbsent.length}</strong></span><span>Will clear PASS absence marks<strong>{preview.willClear.length}</strong></span><span>Unchanged<strong>{preview.unchanged}</strong></span><span>Matched learners<strong>{preview.willMarkAbsent.length + preview.willClear.length + preview.unchanged}</strong></span></div>
+        {preview.willMarkAbsent.length > 0 && <div className="export-preview-list"><strong>To mark absent</strong><p>{preview.willMarkAbsent.join(', ')}</p></div>}
+        {preview.willClear.length > 0 && <div className="export-preview-list"><strong>To clear existing x marks</strong><p>{preview.willClear.join(', ')}</p></div>}
+        {(preview.unmatchedClass.length > 0 || preview.unmatchedSheet.length > 0) && <div className="export-preview-list"><strong>Unmatched learners</strong><p>Not in selected sheet: {preview.unmatchedClass.join(', ') || 'none'}</p><p>Not in PASS roster: {preview.unmatchedSheet.join(', ') || 'none'}</p></div>}
+        {warningConfirmationRequired && <><div className="export-warning-list"><strong>Please review</strong>{preview.warnings.map(text => <p key={text}>{text}</p>)}</div><label className="confirm-roster"><input type="checkbox" checked={confirmWarnings} onChange={event => setConfirmWarnings(event.target.checked)} /> I reviewed these warnings and want to continue.</label></>}
+        <div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmOpen(false)}>Cancel</Button><Button onClick={() => void submitUpdate()} disabled={saving || preview.errors.length > 0 || (warningConfirmationRequired && !confirmWarnings)}>{saving ? 'Updating…' : 'Update & save file'}</Button></div>
+      </section>
+    </div>}
   </div>
 }
 function ExportCard({ icon, title, text, children }: { icon: string; title: string; text: string; children: ReactNode }) { return <section className="card export-card"><div className="export-icon"><Icon name={icon} size={25} /></div><h2>{title}</h2><p>{text}</p><div className="export-form">{children}</div></section> }
 
-function SettingsPage({ activeClass, classes, settings, devices, onSaveSettings, onSetPin, onUpdateClass, onDeleteClass, onSelectClass }: { activeClass: ClassRecord; classes: ClassRecord[]; settings: AppSettings; devices: MediaDeviceInfo[]; onSaveSettings: (patch: Partial<AppSettings>) => Promise<void>; onSetPin: (pin: string | null) => Promise<void>; onUpdateClass: (patch: Pick<ClassRecord, 'name' | 'section' | 'subject' | 'school_year'>) => Promise<ClassRecord>; onDeleteClass: (record: ClassRecord) => Promise<void>; onSelectClass: (id: string) => void }) {
+function SettingsPage({ activeClass, classes, settings, devices, onSaveSettings, onSetPin, onUpdateClass, onDeleteClass, onSelectClass, onTestSound }: { activeClass: ClassRecord; classes: ClassRecord[]; settings: AppSettings; devices: MediaDeviceInfo[]; onSaveSettings: (patch: Partial<AppSettings>) => Promise<void>; onSetPin: (pin: string | null) => Promise<void>; onUpdateClass: (patch: Pick<ClassRecord, 'name' | 'section' | 'subject' | 'school_year'>) => Promise<ClassRecord>; onDeleteClass: (record: ClassRecord) => Promise<void>; onSelectClass: (id: string) => void; onTestSound: (sound: Exclude<ScanSound, null>) => void }) {
   const [draft, setDraft] = useState(settings), [classDraft, setClassDraft] = useState({ name: activeClass.name, section: activeClass.section, subject: activeClass.subject, school_year: activeClass.school_year }), [pin, setPin] = useState(''), [saving, setSaving] = useState(false), [localError, setLocalError] = useState(''), [editingClass, setEditingClass] = useState(false)
   useEffect(() => { setDraft(settings) }, [settings])
   useEffect(() => { setClassDraft({ name: activeClass.name, section: activeClass.section, subject: activeClass.subject, school_year: activeClass.school_year }) }, [activeClass])
@@ -380,6 +548,7 @@ function SettingsPage({ activeClass, classes, settings, devices, onSaveSettings,
         <Setting label="Scan cooldown" help="Wait time before the same QR can scan again."><div className="suffix-input"><input type="number" min="0" max="3600" value={draft.cooldown_sec} onChange={event => setDraft({ ...draft, cooldown_sec: Number(event.target.value) })} aria-label="Scan cooldown seconds" /><span>seconds</span></div></Setting>
         <Setting label="Scan sound" help="Play a sound after each successful scan."><input type="checkbox" checked={draft.sound} onChange={event => setDraft({ ...draft, sound: event.target.checked })} aria-label="Scan sound" /></Setting>
         <Setting label="Default camera" help="Camera selected when the app starts."><select value={draft.default_camera} onChange={event => setDraft({ ...draft, default_camera: event.target.value })} aria-label="Default camera"><option value="">System default</option>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></Setting>
+        <Setting label="Test sounds" help="Preview the scan result tones."><div className="sound-test-buttons"><Button variant="secondary" onClick={() => onTestSound('success')}>Success</Button><Button variant="secondary" onClick={() => onTestSound('duplicate')}>Duplicate</Button><Button variant="secondary" onClick={() => onTestSound('unknown')}>Unknown</Button></div></Setting>
         <div className="setting-row"><div><strong>PIN lock</strong><span>Require a PIN to edit attendance records.</span></div><div className="pin-setting">{!settings.pin_enabled && <input type="password" inputMode="numeric" maxLength={12} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ''))} placeholder="4–12 digits" aria-label="New PIN" />}<button className={`toggle ${settings.pin_enabled ? 'on' : ''}`} aria-label={settings.pin_enabled ? 'Disable PIN lock' : 'Enable PIN lock'} aria-pressed={settings.pin_enabled} onClick={() => void togglePin()} disabled={saving || (!settings.pin_enabled && pin.length < 4)}><i /></button></div></div>
         <div className="settings-save"><Button onClick={() => void saveAttendanceSettings()} disabled={saving}>Save settings</Button></div>
       </section>
@@ -395,15 +564,65 @@ function Setting({ label, help, children }: { label: string; help: string; child
 function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete: (record: ClassRecord) => Promise<void> }) {
   const [filePath, setFilePath] = useState(''), [preview, setPreview] = useState<ImportPreview | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(''), [step, setStep] = useState(1)
   const [form, setForm] = useState({ className: '', section: '', subject: '', schoolYear: '' }), [idColumn, setIdColumn] = useState(0), [nameColumn, setNameColumn] = useState(1)
-  async function chooseFile() { setError(''); try { const selected = await window.pass.classes.chooseImportFile(); if (!selected) return; setBusy(true); setFilePath(selected); const next = await window.pass.classes.importPreview(selected); setPreview(next); setIdColumn(0); setNameColumn(Math.min(1, next.headers.length - 1)); setForm(current => ({ ...current, className: current.className || next.sheetName })); setStep(2) } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) } }
-  async function importClass(event: React.FormEvent) { event.preventDefault(); if (!filePath || !preview) return; setBusy(true); setError(''); try { const record = await window.pass.classes.importClass({ filePath, ...form, schoolYear: form.schoolYear, idColumn, nameColumn }); await onComplete(record) } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) } }
-  const stepLabels = ['Upload file', 'Map columns', 'Confirm']
+  const [sheetName, setSheetName] = useState(''), [headerRow, setHeaderRow] = useState(1), [confirmReimport, setConfirmReimport] = useState(false)
+  function applyPreview(next: ImportPreview) {
+    setPreview(next)
+    if (next.kind === 'sf2') {
+      const grade = next.gradeLevel.match(/\d+/)?.[0]
+      setForm({ className: `${grade ? `Grade ${grade}` : next.gradeLevel} ${next.section}`, section: next.section, subject: '', schoolYear: next.schoolYear })
+    } else {
+      setIdColumn(0); setNameColumn(Math.min(1, next.headers.length - 1))
+      setForm(current => ({ ...current, className: current.className || next.sheetName }))
+    }
+    setConfirmReimport(false)
+  }
+  async function chooseFile() {
+    setError('')
+    try {
+      const selected = await window.pass.classes.chooseImportFile()
+      if (!selected) return
+      setBusy(true); setFilePath(selected); setHeaderRow(1)
+      const next = await window.pass.classes.importPreview(selected)
+      setSheetName(next.sheetName); applyPreview(next); setStep(2)
+    } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+  }
+  async function changePreview(nextSheet = sheetName, nextHeader = headerRow) {
+    if (!filePath) return
+    setBusy(true); setError('')
+    try {
+      const next = await window.pass.classes.importPreview(filePath, nextSheet, nextHeader)
+      setSheetName(next.sheetName); setHeaderRow(nextHeader); applyPreview(next)
+    } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+  }
+  async function importClass(event: React.FormEvent) {
+    event.preventDefault()
+    if (!filePath || !preview) return
+    setBusy(true); setError('')
+    try {
+      const input = preview.kind === 'sf2'
+        ? { kind: 'sf2' as const, filePath, sheetName: preview.sheetName, ...form, gradeLevel: preview.gradeLevel, confirmReimport }
+        : { kind: 'table' as const, filePath, sheetName: preview.sheetName, headerRow: preview.headerRow, ...form, idColumn, nameColumn }
+      const record = await window.pass.classes.importClass(input)
+      await onComplete(record)
+    } catch (reason) { setError(messageOf(reason)) } finally { setBusy(false) }
+  }
+  const stepLabels = ['Choose file', 'Preview roster', 'Confirm import']
+  const canContinue = Boolean(preview && (preview.kind === 'sf2' || preview.headers.length > 0) && !busy)
   return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title"><div className="modal-head"><div><h2 id="import-title">Import class</h2><p>Add students from an Excel class record</p></div><button className="icon-button" aria-label="Close import wizard" onClick={onClose}><Icon name="close" /></button></div>
     <div className="steps">{stepLabels.map((label, index) => <div className={step >= index + 1 ? 'active' : ''} key={label}><span>{step > index + 1 ? '✓' : index + 1}</span>{label}</div>)}</div>{error && <div className="form-error" role="alert">{error}</div>}
-    {step === 1 && <div className="drop-zone"><Icon name="export" size={34} /><h3>Drop your .xlsx file here</h3><p>or click to browse your computer</p><Button onClick={() => void chooseFile()} disabled={busy}>{busy ? 'Reading…' : 'Choose file'}</Button><small>Excel files up to 10 MB</small></div>}
-    {step === 2 && preview && <div className="mapping"><div className="selected-file"><span className="file-icon">XLSX</span><div><strong>{filePath.split(/[\\/]/).pop()}</strong><small>Worksheet: {preview.sheetName}</small></div><button type="button" className="text-action" onClick={() => { setPreview(null); setFilePath(''); setStep(1) }}>Change</button></div><div className="map-fields"><label>Student ID column<select value={idColumn} onChange={event => setIdColumn(Number(event.target.value))}>{preview.headers.map((header, index) => <option key={index} value={index}>{header}</option>)}</select></label><label>Name column<select value={nameColumn} onChange={event => setNameColumn(Number(event.target.value))}>{preview.headers.map((header, index) => <option key={index} value={index}>{header}</option>)}</select></label></div><h3>Preview · first {preview.rows.length} rows</h3><div className="mapping-table"><Table headers={preview.headers} rows={preview.rows.map(row => preview.headers.map((_, column) => String(row[column] ?? '')))} /></div></div>}
-    {step === 3 && preview && <form id="pass-import-form" onSubmit={importClass}><div className="confirm-import"><div className="confirm-icon"><Icon name="check" size={30} /></div><h3>Confirm class details</h3><p>Review the class details before importing.</p><div className="confirm-fields"><label>Class name<input required value={form.className} onChange={event => setForm({ ...form, className: event.target.value })} /></label><label>Section<input required value={form.section} onChange={event => setForm({ ...form, section: event.target.value })} /></label><label>Subject<input required value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} /></label><label>School year<input required value={form.schoolYear} onChange={event => setForm({ ...form, schoolYear: event.target.value })} placeholder="2026–2027" /></label></div><div className="confirm-summary"><span>Students in preview<strong>{preview.rows.length}</strong></span><span>Source file<strong>{filePath.split(/[\\/]/).pop()}</strong></span></div></div></form>}
-    <div className="modal-actions"><Button variant="secondary" onClick={() => step === 1 ? onClose() : setStep(step - 1)}>{step === 1 ? 'Cancel' : 'Back'}</Button>{step < 3 ? <Button onClick={() => setStep(step + 1)} disabled={!preview || busy}>{step === 1 ? 'Continue' : 'Continue'}</Button> : <Button type="submit" disabled={busy || !preview} onClick={() => { const formElement = document.getElementById('pass-import-form') as HTMLFormElement | null; formElement?.requestSubmit() }}>{busy ? 'Importing…' : 'Import students'}</Button>}</div>
+    {step === 1 && <div className="drop-zone"><Icon name="export" size={34} /><h3>Choose an Excel workbook</h3><p>SF2 and simple-table rosters are supported.</p><Button onClick={() => void chooseFile()} disabled={busy}>{busy ? 'Reading…' : 'Choose file'}</Button><small>Excel files (*.xls, *.xlsx)</small></div>}
+    {step === 2 && preview && <div className="mapping"><div className="selected-file"><span className="file-icon">XLS</span><div><strong>{filePath.split(/[\\/]/).pop()}</strong><small>Worksheet: {preview.sheetName}</small></div><button type="button" className="text-action" onClick={() => { setPreview(null); setFilePath(''); setStep(1) }}>Change file</button></div>
+      <label>Worksheet<select value={preview.sheetName} onChange={event => void changePreview(event.target.value, 1)}>{preview.sheets.map(item => <option key={item.name} value={item.name}>{item.name}{item.sf2 ? ` · SF2 ${item.month}` : ''}</option>)}</select></label>
+      {preview.kind === 'sf2' ? <><div className="confirm-summary"><span>Learners found<strong>{preview.learners.length} ({preview.learners.filter(item => item.sex === 'M').length} male, {preview.learners.filter(item => item.sex === 'F').length} female)</strong></span><span>SF2 report month<strong>{preview.month}</strong></span><span>School year<strong>{preview.schoolYear}</strong></span></div>
+        <h3>Preview · generated IDs</h3><div className="mapping-table"><Table headers={['Generated ID', 'Name', 'Sex', 'Import status']} rows={preview.learners.map(item => [item.studentId, item.name, item.sex, item.change])} /></div>
+        {preview.existingClassId && <p className="section-sub">Re-import preview: {preview.added.length} added, {preview.removed.length} removed, {preview.unchanged.length} unchanged.</p>}
+      </> : <><div className="map-fields"><label>Header row<input type="number" min={1} max={preview.headerRowCount} value={preview.headerRow} onChange={event => void changePreview(preview.sheetName, Number(event.target.value))} /></label><label>Student ID column<select value={idColumn} onChange={event => setIdColumn(Number(event.target.value))}>{preview.headers.map((header, index) => <option key={index} value={index}>{header}</option>)}</select></label><label>Name column<select value={nameColumn} onChange={event => setNameColumn(Number(event.target.value))}>{preview.headers.map((header, index) => <option key={index} value={index}>{header}</option>)}</select></label></div><h3>Preview · {preview.rowCount} roster rows</h3><div className="mapping-table"><Table headers={preview.headers} rows={preview.rows.map(row => preview.headers.map((_, column) => String(row[column] ?? '')))} /></div></>}
+    </div>}
+    {step === 3 && preview && <form id="pass-import-form" onSubmit={importClass}><div className="confirm-import"><div className="confirm-icon"><Icon name="check" size={30} /></div><h3>Confirm class details</h3><p>Review the class details before importing.</p><div className="confirm-fields"><label>Class name<input required value={form.className} onChange={event => setForm({ ...form, className: event.target.value })} /></label><label>Section<input required value={form.section} readOnly={preview.kind === 'sf2'} onChange={event => setForm({ ...form, section: event.target.value })} /></label><label>Subject{preview.kind === 'sf2' && ' (Optional)'}<input required={preview.kind === 'table'} value={form.subject} onChange={event => setForm({ ...form, subject: event.target.value })} /></label><label>School year<input required value={form.schoolYear} readOnly={preview.kind === 'sf2'} onChange={event => setForm({ ...form, schoolYear: event.target.value })} placeholder="2026-2027" /></label></div>
+      {preview.kind === 'sf2' && <><div className="confirm-summary"><span>Students<strong>{preview.learners.length}</strong></span><span>New<strong>{preview.added.length}</strong></span><span>Removed<strong>{preview.removed.length}</strong></span><span>Unchanged<strong>{preview.unchanged.length}</strong></span></div>{preview.removed.length > 0 && <label className="confirm-roster"><input type="checkbox" checked={confirmReimport} onChange={event => setConfirmReimport(event.target.checked)} /> I confirm these {preview.removed.length} missing learners should be marked inactive; their attendance history will be kept.</label>}</>}
+      {preview.kind === 'table' && <div className="confirm-summary"><span>Students in preview<strong>{preview.rowCount}</strong></span></div>}
+      <div className="confirm-summary"><span>Source file<strong>{filePath.split(/[\\/]/).pop()}</strong></span></div></div></form>}
+    <div className="modal-actions"><Button variant="secondary" onClick={() => step === 1 ? onClose() : setStep(step - 1)}>{step === 1 ? 'Cancel' : 'Back'}</Button>{step < 3 ? <Button onClick={() => setStep(step + 1)} disabled={!canContinue}>{busy ? 'Loading…' : 'Continue'}</Button> : <Button type="submit" disabled={busy || !preview || (preview.kind === 'sf2' && preview.removed.length > 0 && !confirmReimport)} onClick={() => { const formElement = document.getElementById('pass-import-form') as HTMLFormElement | null; formElement?.requestSubmit() }}>{busy ? 'Importing…' : 'Import students'}</Button>}</div>
   </section></div>
 }
 

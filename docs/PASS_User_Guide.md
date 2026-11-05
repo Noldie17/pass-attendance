@@ -6,15 +6,15 @@
 ## 0. Quick Start
 
 1. Install PASS Attendance or open the portable `.exe` supplied by your school’s ICT coordinator. You should see the PASS Attendance window or Windows may first show a SmartScreen warning.
-2. Choose **Import class**, select the `.xlsx` file, map Student ID and Name, and enter the class details. You should see a five-row preview before you import.
+2. Choose **Import class** and select an `.xls` or `.xlsx` SF2 workbook. You should see a learner preview and generated IDs; a simple-table roster is available as a fallback.
 3. Open **QR Codes**, select the students, and choose **Print selected** or **Save as PDF**. You should see the print dialog or a PDF save dialog.
 4. Open **Scan**, allow camera access, and hold a student QR code in the frame. You should see the student name and Present or Late result; manual ID entry is available below the camera.
 
 ## 1. What PASS is and what you need
 
-PASS records attendance locally on a Windows laptop. It does not need internet for normal use. The current project targets Windows 10 and 11 x64; clean installation has not yet been verified.
+PASS records attendance locally on a Windows laptop. It does not need internet for normal use. SF2 import supports both legacy `.xls` and modern `.xlsx` workbooks; SF2 editing requires `.xlsx`.
 
-You need a class `.xlsx` file, a webcam, and printed QR ID cards. Excel is only needed to open or edit the spreadsheet files. PASS can enter an ID manually if a card is damaged or the camera cannot be used.
+You need a class SF2 workbook, a webcam, and printed QR ID cards. Excel is only needed to save a legacy `.xls` copy as `.xlsx` before exporting attendance. PASS can enter an ID manually if a card is damaged or the camera cannot be used.
 
 ## 2. Installing PASS
 
@@ -53,18 +53,19 @@ The application is not code-signed in the current project configuration. Windows
 
 Use an `.xlsx` file with one header row. Keep Student ID and Name in separate columns. Avoid merged cells. Remove duplicate IDs. Check that IDs are stored as the values you intend to scan; numeric cells with leading zeros may not retain those zeros in Excel.
 
-1. Start an import from **+ New class** in the Current class switcher or from **Import class** on Students. On first launch, choose **Import your class record**. You should see the Import class wizard.
-2. Choose the workbook in **Upload file**, then continue to **Map columns**. You should see the first worksheet name and up to five preview rows.
-3. Choose the Student ID column and Name column. You should see those columns selected in the mapping controls.
-4. Continue to **Confirm**. Enter the class name, section, subject, and school year in the class details. You should see all four fields filled in.
-5. Choose **Import students**. If the import succeeds, you should see the class active and the roster available. If an ID is empty or duplicated, you should see a message identifying the problem; correct the workbook and import again.
+1. Start an import from **+ New class** or **Import class** on Students. Select either an `.xls` or `.xlsx` workbook.
+2. PASS detects SF2 sheets from their labels and selects the last SF2 worksheet by default. Choose another worksheet if needed; the displayed month comes from **Report for the Month of**, not the worksheet name.
+3. For an SF2 sheet, review the learner count, male/female counts, generated IDs, names, and sex. Class name, section, school year, and month are prefilled; subject is optional.
+4. If the class already exists, review the added, removed, and unchanged learners. Confirm before missing learners are marked inactive. Their IDs and attendance history are retained; inactive learners are excluded from attendance counts and QR sheets.
+5. If the workbook is not recognized as SF2, use the simple-table fallback: select a worksheet, choose the header row, then map Student ID and Name columns. Blank rows are ignored; empty IDs, names, and duplicate IDs are reported.
+6. Choose **Import students** to save the class. PASS generates stable IDs like `10ICT-01` for SF2 imports; matched learners keep their prior IDs on re-import.
 
 ## 5. Create and print student QR codes
 
-1. Select the class and open **QR Codes**. You should see the imported student roster.
+1. Select the class and open **QR Codes**. You should see active learners; inactive learners are not included.
 2. Choose **Generate all** or **Select all** to select the roster, or select individual students. You should see the selected count change.
 3. Choose **Print selected** to print, or **Save as PDF** to save a file. Both controls are disabled when zero students are selected. You should see a system print dialog or a PDF save dialog after choosing an enabled action. [Screenshot 04: QR Codes screen with students selected]
-4. For a PDF, choose a save location and file name. You should see the saved PDF in that location. It contains a grid of student cards and QR payloads in the form `PASS|<studentId>`. [Screenshot 05: Example QR PDF sheet with fictional or redacted student data]
+4. For a PDF, choose a save location and file name. You should see the saved PDF in that location. Each card includes learner name, ID, and a QR payload in the form `PASS|<studentId>`. The sheet continues across pages for larger rosters. [Screenshot 05: Example QR PDF sheet with fictional or redacted student data]
 5. Print a test page first. You should see the printed codes clearly separated. Scan a test card before making a full set.
 
 ## 6. Take attendance
@@ -86,44 +87,49 @@ Use an `.xlsx` file with one header row. Keep Student ID and Name in separate co
 5. Select a status and optionally enter a remark. If PIN lock is enabled, enter the PIN. You should see the PIN field in the dialog. [Screenshot 12: Manual attendance dialog with remark and PIN field]
 6. Choose **Save changes**. You should see the attendance list refresh with the saved value. If the PIN is wrong, you should see an error and the change should not be saved.
 
-## 8. Update your class record file
+## 8. Update your SF2 class record
 
-1. Open **Export**. In the **Update class record (.xlsx)** card, set the Attendance date. You should see the selected date’s student and status counts alongside the source workbook details.
-2. Confirm that the displayed source workbook is the correct file. You should see its file name. If it says no source workbook is linked, Update class record is unavailable.
-3. Close the workbook in Excel and other spreadsheet programs. You should see no open Excel window using that file.
-4. Choose **Update & save file**. PASS adds a new column after the last used worksheet column. Its header looks like `Oct 23`, based on the selected date. It writes P, L, or A by matching Student ID. A student without a stored attendance row is written as A.
-5. Before the first successful update, PASS creates a sibling backup named `<source-basename>.bak.xlsx`. You should see a success notification with the added header, matched-student count, and backup path. [Screenshot 13: Export screen after a successful class-record update]
-6. If Excel has the file locked, you should see **Close the file in Excel, then try again**. Close Excel and retry. [Screenshot 14: Export screen showing the locked-workbook message]
-7. The database remains the source of truth. Repeating an update for the same date currently adds another column; check the workbook before repeating an update.
+1. Open **Export** and check the linked workbook. For a legacy `.xls`, PASS keeps the original unchanged. Open it in Excel, choose **Save As → Excel Workbook (.xlsx)**, then use **Change file** in PASS to link that copy.
+2. For an SF2 workbook, choose a worksheet and one of its listed school days. PASS reads the report month from the sheet labels, shows the school year, grade, section, and learner count, and selects a matching class/month by default. Holiday columns are disabled; the selected day controls the export date.
+3. Choose **Review update**. PASS checks that the file can be read, the school year and day column match, and at least half the active roster matches learner names. Errors block writing. Warnings (including partial roster matches, no attendance records, non-`x` marks, and workbook charts/drawings) must be reviewed and confirmed. The review lists learners to mark absent and old PASS `x` marks to clear.
+4. Choose **Update & save file**. PASS writes `x` only for active absent learners; present and late learners have no mark. A previous `x` is cleared for a present or late learner, while other existing characters are left unchanged. Late counts as present in monthly and summary totals. Simple-table exports retain their `A`, `P`, or `L` values.
+5. PASS saves to a temporary file, reopens and verifies it, then replaces the linked workbook. It keeps a sibling `<source-basename>.bak.xlsx` backup from the first update. Re-running a date updates the same existing day column. [Screenshot 14: Export screen showing the locked-workbook message]
+6. If Excel has the file locked, you should see **Close the file in Excel, then try again**. Close Excel and retry.
 
-## 9. Scan log and export
+## 9. Share a roster between PASS installations
+
+1. Open **Students** and choose **Export roster**. Select a destination for the `.passroster` file. It includes class details, stable IDs, learner names, sex, and active state.
+2. On the other PASS installation, choose **Import roster** and select that file. PASS creates the class or merges learners by ID into a class with the same grade and section.
+3. Roster files contain student names and IDs. Share them only through an approved, access-controlled school channel.
+
+## 10. Scan log and export
 
 1. Open **Scan Log**. You should see submitted scans in a read-only list on the **Scan log** page. Successful scans, later duplicates, unknown IDs, and cooldown-ignored attempts are logged.
 2. Set the From and To dates. You should see the rows for that date range.
 3. Choose **Export log (.xlsx)** on Scan Log, or **Export scan log** in the Export screen, and choose a destination in the save dialog. You should see an Excel file at the chosen location. The CSV remains append-only and cannot be edited or deleted from the app. [Screenshot 15: Scan Log with a date range and export control]
 4. The CSV is stored at `Documents\PASS\<class>\scan-log.csv`. The folder name is based on the class name. If the class is renamed, older log files stay in the former folder and may no longer appear in the Scan Log screen; export important logs before renaming.
 
-## 10. File locations, backups, and moving to another laptop
+## 11. File locations, backups, and moving to another laptop
 
 The database file is `pass.sqlite` inside Electron’s `userData` folder. On Windows, this is normally under the current Windows user’s AppData/Roaming application folder. The scan log is under `Documents\PASS\<class>\scan-log.csv`. The source `.xlsx` stays wherever you originally selected it. Updated workbooks have a sibling `.bak.xlsx` backup.
 
 1. Close PASS before making a backup. You should see the PASS window close before you copy files.
 2. Copy the complete PASS user-data folder and the `Documents\PASS` folder to approved backup storage. You should see both folders in the backup location.
 3. To move to another laptop, install the same PASS build, close it, and restore the user-data folder to that installation’s matching `userData` location. Restore `Documents\PASS` as well. You should see your classes and scan logs after starting PASS.
-4. The saved workbook path is absolute. If the source workbook is not at that path on the new laptop, the Update class record action may fail. The current app has no in-app relink control. Ask ICT to preserve the path or arrange a supported move before updating the workbook.
+4. Workbook paths are absolute. If a linked workbook is moved, choose **Link .xlsx copy** again with its new path. For a legacy `.xls`, link only its `.xlsx` Save As copy; the `.xls` source is never edited.
 5. Protect backups because the database and CSV contain student information and are not encrypted by PASS. You should see the backup stored only in an approved location with access limited by school policy.
 
-## 11. Settings
+## 12. Settings
 
 1. Open **Settings**. You should see the **Attendance & scanning** and **Class management** cards. PIN lock is part of Attendance & scanning.
 2. Set the Late cutoff and cooldown seconds. Cooldown accepts whole numbers from 0 through 3600. Choose **Save settings** inside Attendance & scanning. You should see the saved values remain.
 3. Set the default camera from the available camera list. You may need to open Scan once for camera names to be available. You should see the selected device name in the list.
-4. Turn scan sound on or off. You should hear a short beep after a successful scan only when sound is enabled.
+4. Turn scan sound on or off. A successful scan plays the success tone, an already-recorded scan plays two short beeps, and an unknown ID plays a lower descending tone. Cooldown-ignored scans stay silent. Use **Test sounds** to preview them.
 5. To enable a PIN, enter four to twelve digits in the PIN lock field and turn on its toggle. Manual attendance edits should then require the PIN. Turning off the PIN currently does not ask for the existing PIN; keep the app on a trusted Windows account.
 6. In Class management, choose the edit icon for the active class, edit its name, section, subject, or school year, then choose **Save class details**. You should see the updated class details in the app.
 7. Choose **Delete class** only when intended. You should see a confirmation before the class and its database attendance records are deleted. Scan-log CSV files are separate files in Documents PASS. [Screenshot 16: Settings screen showing cutoff, cooldown, sound, and camera controls]
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -132,13 +138,15 @@ The database file is `pass.sqlite` inside Electron’s `userData` folder. On Win
 | Camera is in use | Another app has the camera open. | Close the other camera app and try again. |
 | QR will not read | Glare, low light, motion, distance, focus, or low print quality. | Flatten the card, improve light, avoid reflections, hold it still, and move it into the camera frame. Try manual ID entry. |
 | “ID not in this class” | Wrong class selected or the ID is absent/mismatched in the roster. | Check the class switcher and Students screen. Confirm the ID spelling in the original workbook. |
-| Import error | Wrong sheet/column mapping, empty ID/name, duplicate ID, or unsupported workbook. | Use the first worksheet with a header row, map the correct columns, correct empty/duplicate values, and import again. |
+| Import error | Wrong file type, unrecognized/empty workbook, wrong header/column mapping, empty ID/name, or duplicate ID. | Select an `.xls`/`.xlsx` workbook, choose the right worksheet and header row, correct roster errors, and import again. |
+| SF2 export says no sheet for the month | The linked workbook does not have an SF2 sheet for the selected date's month and school year. | Link the correct `.xlsx` copy or choose a date covered by the workbook. |
+| SF2 export refuses a date | The date has no school-day column or its column is marked HOLIDAY. | Choose a school day present in the form. PASS does not add day columns. |
 | Workbook is locked | Excel or another program has the source workbook open. | Close the workbook in all programs and choose Update class record again. |
 | SmartScreen warns about the app | The build is not code-signed or not yet recognized by Windows. | Continue only after ICT verifies the file and source. Choose More info → Run anyway only for that trusted build. Never disable antivirus. |
 | PASS will not open | Windows blocked the file, installation is incomplete, or the build is damaged. | Do not bypass security tools. Ask ICT to verify the build and reinstall from the trusted school source. |
 | Old scan log is missing after rename | Log folder names follow the class name; rename does not move old CSV files. | Look for the old folder name under `Documents\PASS`. Export/copy the log before renaming next time. |
 
-## 13. Frequently asked questions
+## 14. Frequently asked questions
 
 **Does PASS need internet?** No runtime internet service is required by the design. The current build still needs Windows acceptance testing while offline.
 

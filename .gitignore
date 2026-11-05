@@ -5,3 +5,29 @@ release/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local student data, workbooks, and exports
+*.xls
+*.xlsx
+*.xlsm
+*.csv
+*.passroster
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Keep the fictional spreadsheet fixtures available to tests
+!tests/fixtures/SF2_sample_anonymized.xls
+!tests/fixtures/SF2_sample_anonymized.xlsx
+
+# Local credentials and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.secrets/

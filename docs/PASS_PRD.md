@@ -17,7 +17,7 @@ This document is version 1.0 as requested for the Phase 5 documentation delivera
 
 ### Goals
 
-- Import students from a teacher-selected `.xlsx` class record.
+- Import students from teacher-selected `.xls` or `.xlsx` SF2 class records, with a simple-table fallback.
 - Record daily Present or Late results from QR scans, with Absent shown for students without a record.
 - Retain scan-attempt proof in an append-only local CSV file.
 - Let authorized teachers review attendance and make manual corrections, optionally protected by a PIN.
@@ -48,7 +48,7 @@ This document is version 1.0 as requested for the Phase 5 documentation delivera
 
 1. The teacher starts PASS. With no imported class, PASS shows a first-launch empty state.
 2. The teacher chooses **Import a class** and selects an `.xlsx` file.
-3. PASS reads the first worksheet and shows column names and up to five preview rows.
+3. PASS detects SF2 worksheets by their labels and lets the teacher select one; the simple-table fallback lets the teacher select a worksheet and header row.
 4. The teacher maps Student ID and Name, enters class details, and imports.
 5. PASS rejects empty or duplicate IDs with an error. It stores the class, students, source path, and mapping locally.
 
@@ -65,7 +65,7 @@ This document is version 1.0 as requested for the Phase 5 documentation delivera
 2. PASS requests camera access and processes 640×480 frames at approximately eight frames per second.
 3. The teacher holds a student QR code in the camera frame, or enters a student ID manually.
 4. For the first record of the local day, PASS stores Present at or before the configured cutoff and Late after it.
-5. PASS shows a result and, if enabled, plays a short Web Audio tone.
+5. PASS shows a result and, if enabled, plays the result-specific Web Audio tone: success, two beeps for already recorded, or a descending low tone for an unknown ID. Cooldown-ignored scans are silent.
 
 ### 4.4 Duplicate or unknown ID
 
@@ -82,10 +82,11 @@ This document is version 1.0 as requested for the Phase 5 documentation delivera
 
 ### 4.6 Update class record
 
-1. The teacher opens **Export** and selects the date in the page date control.
-2. The teacher closes the original workbook in Excel.
-3. PASS creates a sibling `.bak.xlsx` backup if it does not already exist, adds a date column after the last used column, and writes P/L/A values by Student ID.
-4. If the source is locked, PASS reports “Close the file in Excel, then try again”. The workbook update is not completed; the original remains the source of truth.
+1. The teacher links an `.xlsx` workbook. Legacy `.xls` sources must first be saved as an `.xlsx` copy in Excel; PASS never edits the `.xls`.
+2. PASS detects each SF2 worksheet and displays its report month, school year, grade, section, and learner count. The teacher selects a sheet and existing school-day column; holidays are disabled.
+3. PASS previews the update and validates readability, school year, date column, and normalized learner-name matches. Errors block writing; warnings require explicit confirmation.
+4. PASS writes `x` only for absent active learners, clears an existing `x` when a learner is present or late, and leaves other characters unchanged. Late is counted as present in per-learner and monthly summary totals.
+5. PASS writes to a same-folder temporary file, reopens and verifies it, preserves the first-update `.bak.xlsx` backup, then replaces the original. If the source is locked, PASS reports “Close the file in Excel, then try again” and does not complete the update.
 
 ### 4.7 Export scan log
 
@@ -100,15 +101,15 @@ Status describes the code observed in the project, not a completed school accept
 | ID | Requirement | Priority | Status | Testable acceptance criterion |
 |---|---|---|---|---|
 | FR-01 | Show a first-launch state and support multiple imported classes with a class switcher. | Must | Implemented | With no classes, launch shows the empty state; after importing two classes, both appear in the switcher and changing the selection loads that class. |
-| FR-02 | Import the first worksheet of an `.xlsx`, preview five rows, map Student ID and Name, remember mappings, and reject empty or duplicate IDs. | Must | Implemented | Import a valid test workbook and verify the selected columns and five-row preview; blank and duplicate IDs return clear errors and do not create the class. |
+| FR-02 | Import `.xls` or `.xlsx` SF2 workbooks or use the simple-table fallback with worksheet/header selection. | Must | Implemented | Verify both fixture formats parse identically, SF2 worksheet selection uses the report-month label, and fallback import rejects invalid roster rows. |
 | FR-03 | Scan `PASS|<studentId>` and bare IDs; first scan saves Present/Late using the cutoff; existing records remain unchanged; unknown IDs show an error. | Must | Partial | In a Windows camera test, scan a valid QR before/after cutoff, rescan the same ID, then scan an unknown ID; verify each visible message and stored result. |
 | FR-04 | Ignore the same QR during the configured cooldown and append every submitted scan attempt to an fsync’d CSV log. | Must | Implemented | Submit a valid scan, a cooldown repeat, a later duplicate, and an unknown ID; verify four corresponding append-only CSV rows with the required columns. |
 | FR-05 | Show recent scans from today only and use a consistent current attendance status. | Should | Implemented | Scan a known student today and verify that the row appears with today’s attendance status; a student with no scan does not appear. |
 | FR-06 | Show attendance by date, support search/filter, display no-record students as Absent on screen only, and allow manual P/L/A plus remark. | Must | Implemented | Select a date with one unrecorded student; verify Absent with “no record”; manually save another status and remark and verify the saved view. |
 | FR-07 | Optionally require a PIN for manual attendance changes and store the PIN using scrypt. | Should | Partial | Enable a 4–12 digit PIN; verify a wrong PIN rejects a manual edit and the correct PIN allows it. Verify security review of PIN disable/reset separately. |
-| FR-08 | Configure late cutoff, cooldown, sound, default camera, PIN, and class rename/delete. | Must | Partial | Save supported settings and verify persistence after restart; rename a class and verify display; confirm deletion removes the class and its attendance after confirmation. Historical scan-log folder behavior needs improvement. |
+| FR-08 | Configure late cutoff, cooldown, result-specific sounds, default camera, PIN, and class rename/delete. | Must | Partial | Save supported settings; test success, duplicate, and unknown-ID sounds; verify persistence after restart; rename a class and verify display; confirm deletion removes the class and its attendance after confirmation. |
 | FR-09 | Explain camera-not-found, permission-blocked, and camera-in-use failures; retain manual entry. | Must | Partial | On Windows, test no camera, denied permission, and a camera held by another app; each state must explain the issue while manual entry remains usable. |
-| FR-10 | Update the original workbook with a date column, matching by ID, a pre-write backup, and a clear locked-file message. | Must | Partial | On a representative workbook, verify the new column, status mapping, backup, formatting, and that a locked file produces the exact guidance without changing the source. |
+| FR-10 | Update an existing SF2 day column across multi-sheet workbooks with x-only absence marks, validation, totals, safe write, backup, and clear locked-file errors. | Must | Implemented; local workbook unverified | Verify only the selected SF2 sheet changes; absent learners receive `x`, present/late learners are blank, other marks remain untouched, totals are correct, warning confirmation is required, and failed verification leaves the source unchanged. |
 | FR-11 | Read the append-only CSV and export a selected date range to `.xlsx`. | Must | Implemented | Export a date range and verify only rows in that range appear with the eight required headers; the CSV must remain unchanged. |
 | FR-12 | Generate QR cards for selected students; print or save an A4 PDF; disable output with zero selected. | Must | Implemented | Select zero students and verify both output actions are disabled; select multiple students and verify IDs, names, and QR payloads in print/PDF output. |
 | FR-13 | Build Windows NSIS and portable packages on `windows-latest` and upload `.exe` artifacts. | Must | Partial | Run the GitHub Actions workflow on Windows; verify both `.exe` files are uploaded and install/launch on a clean Windows laptop. |
@@ -142,7 +143,7 @@ Status describes the code observed in the project, not a completed school accept
 
 **QR Codes.** Select-all/per-student selection cards, Generate all, Print selected, and Save as PDF. Print and PDF controls are disabled when no students are selected.
 
-**Export.** Two-card layout: Update class record (.xlsx), with the date, source workbook and attendance counts, and Export scan log (.xlsx), with a date range.
+**Export.** Two-card layout: Update class record with workbook, SF2 worksheet/day selectors, validation feedback, and a review/confirm dialog; and Export scan log (.xlsx) with a date range.
 
 **Settings.** Attendance & scanning and Class management cards. Save settings is inside Attendance & scanning with cutoff, cooldown, sound, default camera and PIN lock; Class management lists classes with edit/delete actions and active-class details.
 
@@ -162,7 +163,7 @@ Status describes the code observed in the project, not a completed school accept
 
 **Excel file lock.** Excel can hold the source workbook open. Close it before updating. PASS catches common lock/access error codes and asks the teacher to retry. This has not been hardware-tested.
 
-**Unusual workbook layouts.** Import uses the first worksheet, row 1 as the header row, and teacher-selected columns. The workbook update assumes the saved ID-column mapping remains correct. Merged or irregular layouts and unmatched IDs require manual review.
+**Unusual workbook layouts.** SF2 detection and export rely on form labels, learner blocks, and existing day columns; partial roster matches require explicit review. ExcelJS may not preserve charts, drawings, or form controls; PASS warns when these are present and users should inspect the updated workbook.
 
 **Webcam and lighting.** Low light, glare, focus, camera quality, distance, and print quality can prevent decoding. Keep the code flat, well lit, and fully in frame. Manual ID entry is a fallback.
 
@@ -172,7 +173,7 @@ Status describes the code observed in the project, not a completed school accept
 
 ## 10. Assumptions, open questions, and success metrics
 
-**Assumptions.** Each class workbook has a usable first worksheet with one header row and stable Student ID values. A teacher has permission to process the roster. A class is normally operated by one teacher on one local Windows profile. The source workbook remains available at its saved path for updates.
+**Assumptions.** SF2 export matches active learners by normalized name because SF2 does not contain PASS IDs. Late attendance is counted as present. A teacher has permission to process the roster. A class is normally operated by one teacher on one local Windows profile. The linked workbook remains available at its saved path for updates.
 
 **Open questions.** Who owns PIN administration and reset? What is the school’s retention schedule? Where should backups be stored and who may access them? Does ICT require a signed installer? What student-ID formats and workbook variations must be supported? How should historical scan logs be handled after a class rename?
 
@@ -210,9 +211,8 @@ Status describes the code observed in the project, not a completed school accept
 - Exact migration of the absent UI prototype ZIP and original logo asset.
 - Built, signed, and clean-Windows-tested NSIS/portable `.exe` artifacts. The workflow is configured but has not been run here.
 - Hardware acceptance of camera permissions/errors, scan latency, printing/PDF layout, Excel locking, installer, and uninstall/data-retention behavior.
-- In-app relinking of the original workbook after moving a class to a different computer or path.
 - Screen-reader and full keyboard-accessibility acceptance testing.
-- Automated integration tests for database/filesystem export services; the present Vitest suite is for pure logic and CSV parsing.
+- The owner's local workbook-specific export failure remains unverified because no file or exact error was supplied and `tests/fixtures/local/` was absent.
 - User accounts, cloud sync, multi-teacher synchronization, student/parent apps, and data encryption at rest.
 
 ## 14. Deviations from spec
@@ -221,6 +221,7 @@ Status describes the code observed in the project, not a completed school accept
 - Product documentation is labeled version 1.0 per request, distinct from the application’s `package.json` version of 0.2.3.
 - The renderer CSP allows inline styles (`style-src 'unsafe-inline'`); it blocks remote connections and inline scripts, but does not use nonce/hash-only style policy.
 - Class scan logs are stored in folders named from the class name. Renaming a class does not migrate old CSV files; the Scan Log screen reads the current name’s folder, so historical logs under the old name may no longer appear there.
-- Repeated Update class record actions append another column for the selected date rather than detecting an existing date header. The new-cell styling copies the adjacent last-used cell’s style; complete layout preservation for unusual workbooks is not verified.
+- Optional generation of a new SF2 workbook from PASS is not implemented. Existing SF2 workbooks must contain the selected day column; PASS will not add one.
+- Manual acceptance on the owner's local workbook, Windows, Excel locks, camera, and printing remains outstanding.
 - PIN protection is enforced for manual attendance edits, but turning off an enabled PIN does not ask for the current PIN.
 - The request’s no-GUI constraint means the documented Windows and print workflows are not verified results. They remain acceptance targets, not measured outcomes.

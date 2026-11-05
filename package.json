@@ -21,7 +21,8 @@
     "qrcode": "1.5.4",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "sql.js": "1.13.0"
+    "sql.js": "1.13.0",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.0.9",
