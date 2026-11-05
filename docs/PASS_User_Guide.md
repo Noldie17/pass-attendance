@@ -1,7 +1,7 @@
 # PASS — Teacher User Guide
 
 **Guide version:** 1.0  
-**Application package version:** 0.2.3
+**Application package version:** 1.1.1
 
 ## 0. Quick Start
 
@@ -92,7 +92,7 @@ Use an `.xlsx` file with one header row. Keep Student ID and Name in separate co
 1. Open **Export** and check the linked workbook. For a legacy `.xls`, PASS keeps the original unchanged. Open it in Excel, choose **Save As → Excel Workbook (.xlsx)**, then use **Change file** in PASS to link that copy.
 2. For an SF2 workbook, choose a worksheet and one of its listed school days. PASS reads the report month from the sheet labels, shows the school year, grade, section, and learner count, and selects a matching class/month by default. Holiday columns are disabled; the selected day controls the export date.
 3. Choose **Review update**. PASS checks that the file can be read, the school year and day column match, and at least half the active roster matches learner names. Errors block writing. Warnings (including partial roster matches, no attendance records, non-`x` marks, and workbook charts/drawings) must be reviewed and confirmed. The review lists learners to mark absent and old PASS `x` marks to clear.
-4. Choose **Update & save file**. PASS writes `x` only for active absent learners; present and late learners have no mark. A previous `x` is cleared for a present or late learner, while other existing characters are left unchanged. Late counts as present in monthly and summary totals. Simple-table exports retain their `A`, `P`, or `L` values.
+4. Choose **Update & save file**. PASS writes `x` for each matched active learner without a saved attendance record or marked absent; learners with a saved Present or Late record are left blank. PASS replaces old marks in those learner/day cells so the selected day reflects current PASS attendance. Other sheets and cells remain unchanged. Late counts as present in monthly and summary totals. Simple-table exports retain their `A`, `P`, or `L` values.
 5. PASS saves to a temporary file, reopens and verifies it, then replaces the linked workbook. It keeps a sibling `<source-basename>.bak.xlsx` backup from the first update. Re-running a date updates the same existing day column. [Screenshot 14: Export screen showing the locked-workbook message]
 6. If Excel has the file locked, you should see **Close the file in Excel, then try again**. Close Excel and retry.
 

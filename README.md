@@ -1,16 +1,72 @@
-# PASS — Attendance Scanning System
+<div align="center">
 
-Offline Windows desktop attendance system for Pantabangan National High School. The Electron main process owns the local database and file operations; the renderer uses a typed, restricted contextBridge API. Fonts and application assets are local.
+# PASS Attendance
 
-## Teacher quick start
+### Offline QR attendance for Pantabangan National High School
 
-PASS imports DepEd SF2 class records from both legacy `.xls` and modern `.xlsx` files, creates stable learner IDs, and can print QR cards. It also retains a simple-table roster importer as a fallback. See [TEACHER_README.md](TEACHER_README.md) for the short workflow and [docs/PASS_User_Guide.md](docs/PASS_User_Guide.md) for SF2 import, roster sharing, legacy-file linking, and attendance export instructions. Student and attendance data stays local; roster share files contain student names and should be handled carefully.
+Scan attendance, manage class rosters, and update DepEd School Form 2 workbooks on Windows.
+
+[Download for Windows](https://github.com/Noldie17/pass-attendance/releases/latest) ·
+[Teacher guide](docs/PASS_User_Guide.md) ·
+[Report an issue](https://github.com/Noldie17/pass-attendance/issues)
+
+![Build Windows installers](https://github.com/Noldie17/pass-attendance/actions/workflows/build-windows.yml/badge.svg)
+![Latest release](https://img.shields.io/github/v/release/Noldie17/pass-attendance)
+
+</div>
+
+---
+
+## About
+
+PASS (PNHS Attendance Scanning System) is a local-first Windows desktop app for classroom attendance. It uses student QR cards, stores attendance on the computer, and works without a cloud account or network service.
+
+> **Privacy:** Student rosters and attendance records contain sensitive information. PASS stores its database locally. Share exported roster/workbook files only through school-approved channels.
+
+## Features
+
+- Scan student QR cards or enter IDs manually; PASS cards use `PASS|<ID>` payloads.
+- Import SF2 workbooks in legacy `.xls` and modern `.xlsx` formats.
+- Generate stable learner IDs and print selected QR cards or save them as PDF.
+- Review attendance, make manual corrections, and export a read-only scan log.
+- Update a selected month and school day in multi-sheet SF2 `.xlsx` workbooks.
+- Reconcile the selected SF2 day against PASS attendance: learners without a saved record or marked absent receive `x`; present and late learners remain blank.
+- Keep a backup before the first workbook update. PASS does not edit legacy `.xls` files.
+
+## Download and install
+
+Go to **[GitHub Releases](https://github.com/Noldie17/pass-attendance/releases/latest)** and download either:
+
+| File | Use |
+|---|---|
+| `PASS-Setup-<version>.exe` | Install PASS on Windows; creates Start menu and optional desktop shortcuts. |
+| `PASS-Portable-<version>.exe` | Run PASS without installing it. |
+
+The latest release page contains the Windows executables attached by GitHub Actions. Windows may show a SmartScreen warning because the app is not code-signed. Install or run it only if you trust the source; do not disable antivirus or Windows security.
+
+## Build and download with GitHub Actions
+
+Every push to `main` builds the Windows installer and portable executable and uploads them as a temporary Actions artifact. To create permanent downloadable files on the Releases page, push a version tag matching `package.json` (currently `v1.1.1`). The workflow attaches both `.exe` files to the GitHub Release and retains the Actions artifact. Follow progress under **Actions → Build Windows installers**.
+
+For this release, from the repository folder in PowerShell:
+
+```powershell
+git status --short
+git add -A
+git commit -m "Release PASS v1.1.1" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+$branch = git branch --show-current
+git push -u origin $branch
+git tag -a v1.1.1 -m "PASS v1.1.1"
+git push origin v1.1.1
+```
+
+Review `git status --short` before `git add -A`; that command stages all current changes. The existing remote tag `v1.1.0` is already in use and should not be moved.
 
 ## Development
 
 Requirements: Node.js 22 LTS and npm.
 
-```bash
+```powershell
 npm ci
 npm run dev
 npm test
@@ -18,17 +74,27 @@ npx tsc --noEmit
 npm run build
 ```
 
-## Windows distribution
+To package locally on Windows:
 
-The Windows NSIS installer and portable executable are built on GitHub Actions (`windows-latest`) by pushing a `v*` tag or manually running the workflow. The workflow uploads `.exe` artifacts. Locally, on Windows only, run:
-
-```bash
+```powershell
 npm ci
 npm run dist:win
 ```
 
-Output is written to `release/`. Do not run Windows packaging in the Linux sandbox. Review `HARDWARE_TEST.md` on a clean Windows laptop before distributing the app.
+The installer and portable executable are written to `release/`.
 
-## Scope notes
+## Project documentation
 
-SF2 export scans every worksheet for SF2 records, then lets the teacher select a sheet and one of its school-day columns. A review step validates roster matches and warns before changes. Only absent active learners receive `x`; present and late learners remain blank, and a previous PASS `x` is cleared if the learner is now present or late. Monthly and summary totals are recalculated, and the workbook is verified from a temporary copy before replacement; a `.bak.xlsx` backup is kept. PASS never edits an `.xls` file; link the teacher's `.xlsx` Save As copy before exporting from a legacy source. Late attendance is counted as present in SF2 totals.
+- [Teacher quick start](TEACHER_README.md)
+- [Full teacher user guide](docs/PASS_User_Guide.md)
+- [Product requirements](docs/PASS_PRD.md)
+- [Hardware and release checklist](HARDWARE_TEST.md)
+- [Changelog](CHANGELOG.md)
+
+## Technology
+
+Electron 35 · React 19 · TypeScript · electron-vite · Tailwind CSS 4 · SQL.js · ExcelJS · SheetJS · jsQR
+
+---
+
+Built for Pantabangan National High School. This is a school project; review and test the app against school procedures before operational use.

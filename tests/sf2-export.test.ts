@@ -178,7 +178,7 @@ describe('SF2 export', () => {
     expect([...marchBeforeFebruary].some(([cell, value]) => marchAfterUpdate.get(cell) !== value)).toBe(true)
   })
 
-  it('leaves other marks untouched and removes only a previous x for a present learner', async () => {
+  it('applies saved attendance over pre-existing day marks', async () => {
     const workbook = await loadFixture()
     const sheet = workbook.getWorksheet(februarySheetName)!
     sheet.getCell(8, 6).value = 'x'
@@ -188,7 +188,7 @@ describe('SF2 export', () => {
       date: '2026-02-02', confirmWarnings: true
     })
     expect(sheet.getCell(8, 6).value).toBeNull()
-    expect(sheet.getCell(9, 6).value).toBe('H')
+    expect(sheet.getCell(9, 6).value).toBe('x')
   })
 
   it('previews blocking match/year errors and confirmable roster/mark warnings', async () => {
@@ -228,7 +228,9 @@ describe('SF2 export', () => {
       record, students, attendance: students.map(student => ({ student_id: student.student_id, status: 'P' as const })),
       filePath: fixtureXlsx, sheetName: februarySheetName, date: '2026-02-02'
     })
-    expect(otherMark.warnings.some(warning => warning.includes('marks other than "x"'))).toBe(true)
-    expect(otherMark.unchanged).toBe(29)
+    expect(otherMark.warnings.some(warning => warning.includes('existing non-x marks'))).toBe(true)
+    expect(otherMark.warnings.some(warning => warning.includes('replace each matched learner'))).toBe(true)
+    expect(otherMark.willClear).toContain(students[0].name)
+    expect(otherMark.unchanged).toBe(28)
   })
 })

@@ -205,7 +205,7 @@ export default function App() {
   async function updateWorkbook(input: { date: string; sheetName?: string; day?: number; confirmWarnings: boolean }): Promise<boolean> {
     try {
       const result = await window.pass.exports.updateClassRecord({ classId: activeClassId, ...input })
-      setToast(`Updated ${result.header} column · ${result.matched} students. Backup: ${result.backupPath}`)
+      setToast(`SF2 updated. The .bak.xlsx file is only a backup.`)
       return true
     } catch (reason) { setError(messageOf(reason)); return false }
   }
@@ -231,7 +231,6 @@ export default function App() {
           <option value="__new__">+ New class</option>
         </select></div><div className="class-avatar">{activeClass?.section?.slice(0, 2) || '—'}</div></div>
       </header>
-      {error && <Alert text={error} onClose={() => setError('')} />}
       <div className="content">
         {!activeClass && classes.length === 0 ? <EmptyState importClass={() => setShowImport(true)} /> : <div className="page">
           {screen === 'scan' && <ScanPage activeClassId={activeClassId} active={screen === 'scan'} settings={settings} devices={cameraDevices} onDevices={setCameraDevices} result={lastResult} recent={recent} attendance={attendance} stats={summary} busy={busy} onScan={handleScan} onImport={() => setShowImport(true)} />}
@@ -246,7 +245,10 @@ export default function App() {
     </main>
     {showImport && <ImportWizard onClose={() => setShowImport(false)} onComplete={importFinished} />}
     {editTarget && <EditAttendanceDialog row={editTarget} date={date} pinEnabled={settings.pin_enabled} onClose={() => setEditTarget(null)} onSave={saveManual} />}
-    {toast && <div className="toast" role="status">{toast}</div>}
+    {(error || toast) && <div className="notification-stack" aria-live="polite">
+      {error && <Alert text={error} onClose={() => setError('')} />}
+      {toast && <div className="toast" role="status">{toast}</div>}
+    </div>}
   </div>
 }
 
@@ -430,6 +432,7 @@ function ExportPage({ record, rows, date, onDate, onUpdate, onLinkXlsx, logFrom,
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmWarnings, setConfirmWarnings] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [previewRevision, setPreviewRevision] = useState(0)
   const requestId = useRef(0)
   const present = rows.filter(row => row.status === 'P').length, late = rows.filter(row => row.status === 'L').length, absent = rows.filter(row => row.status === 'A').length
   const workbookPath = record.export_xlsx_path ?? record.source_xlsx_path
@@ -475,7 +478,7 @@ function ExportPage({ record, rows, date, onDate, onUpdate, onLinkXlsx, logFrom,
       if (active && id === requestId.current) setLoadingPreview(false)
     })
     return () => { active = false }
-  }, [record.id, workbookPath, date, sheetName, selectedDay, onDate, onError])
+  }, [record.id, workbookPath, date, sheetName, selectedDay, previewRevision, onDate, onError])
   const selectedSheet = preview?.sheets.find(sheet => sheet.name === (sheetName || preview.sheet))
   const warningConfirmationRequired = Boolean(preview?.warnings.length)
   async function submitUpdate() {
@@ -488,7 +491,10 @@ function ExportPage({ record, rows, date, onDate, onUpdate, onLinkXlsx, logFrom,
         ...(preview.day !== null ? { day: preview.day } : {}),
         confirmWarnings: true
       })
-      if (completed) setConfirmOpen(false)
+      if (completed) {
+        setConfirmOpen(false)
+        setPreviewRevision(revision => revision + 1)
+      }
     } finally { setSaving(false) }
   }
   return <div className="page"><PageHead title="Export" sub="Save attendance records to your computer." />
@@ -521,9 +527,9 @@ function ExportPage({ record, rows, date, onDate, onUpdate, onLinkXlsx, logFrom,
       <section className="modal export-confirm" role="dialog" aria-modal="true" aria-labelledby="export-confirm-title">
         <div className="modal-head"><div><h2 id="export-confirm-title">Confirm attendance update</h2><p>{preview.sheet} · {preview.month ?? ''} {preview.day ?? ''} · {preview.date ?? date}</p></div><button className="icon-button" aria-label="Close update preview" onClick={() => setConfirmOpen(false)}><Icon name="close" /></button></div>
         {preview.errors.map(text => <div className="form-error" role="alert" key={text}>{text}</div>)}
-        <div className="confirm-summary"><span>Will mark absent<strong>{preview.willMarkAbsent.length}</strong></span><span>Will clear PASS absence marks<strong>{preview.willClear.length}</strong></span><span>Unchanged<strong>{preview.unchanged}</strong></span><span>Matched learners<strong>{preview.willMarkAbsent.length + preview.willClear.length + preview.unchanged}</strong></span></div>
+        <div className="confirm-summary"><span>Will mark absent<strong>{preview.willMarkAbsent.length}</strong></span><span>Will clear existing day marks<strong>{preview.willClear.length}</strong></span><span>Unchanged<strong>{preview.unchanged}</strong></span><span>Matched learners<strong>{preview.willMarkAbsent.length + preview.willClear.length + preview.unchanged}</strong></span></div>
         {preview.willMarkAbsent.length > 0 && <div className="export-preview-list"><strong>To mark absent</strong><p>{preview.willMarkAbsent.join(', ')}</p></div>}
-        {preview.willClear.length > 0 && <div className="export-preview-list"><strong>To clear existing x marks</strong><p>{preview.willClear.join(', ')}</p></div>}
+        {preview.willClear.length > 0 && <div className="export-preview-list"><strong>To clear existing day marks for present/late learners</strong><p>{preview.willClear.join(', ')}</p></div>}
         {(preview.unmatchedClass.length > 0 || preview.unmatchedSheet.length > 0) && <div className="export-preview-list"><strong>Unmatched learners</strong><p>Not in selected sheet: {preview.unmatchedClass.join(', ') || 'none'}</p><p>Not in PASS roster: {preview.unmatchedSheet.join(', ') || 'none'}</p></div>}
         {warningConfirmationRequired && <><div className="export-warning-list"><strong>Please review</strong>{preview.warnings.map(text => <p key={text}>{text}</p>)}</div><label className="confirm-roster"><input type="checkbox" checked={confirmWarnings} onChange={event => setConfirmWarnings(event.target.checked)} /> I reviewed these warnings and want to continue.</label></>}
         <div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmOpen(false)}>Cancel</Button><Button onClick={() => void submitUpdate()} disabled={saving || preview.errors.length > 0 || (warningConfirmationRequired && !confirmWarnings)}>{saving ? 'Updating…' : 'Update & save file'}</Button></div>

@@ -1,10 +1,12 @@
 # Progress
 
 ## Done — Multi-sheet SF2 export and sound feedback (2026-10-31)
+- Corrected the selected SF2 day reconciliation: unrecorded active learners are marked `x`, recorded Present/Late learners are blank, and stale conflicting marks in those learner/day cells are overwritten. Added a production regression for 23 recorded out of 29, including 6 absent marks and correct day totals.
+- The Export success notification is concise and clarifies that `.bak.xlsx` is only a backup.
 - Reproduced the production export against a copied anonymized `.xlsx` SF2 fixture with a seeded SQL.js database before implementation; this fixture export succeeds.
 - The requested `tests/fixtures/local/` directory was absent, and the original message did not include a local filename or exact app error, so the owner's workbook-specific failure could not be reproduced or diagnosed.
 - Added SF2 multi-sheet and school-day selection, a preflight review with blocking errors and confirmable warnings, x-only absence marks, old-`x` clearing for present/late learners, and totals that count late as present.
-- Added verified same-folder temporary writes with first-update backup preservation, plus regression tests for two-sheet isolation, untouched non-`x` marks, and failed verification leaving the original untouched.
+- Added verified same-folder temporary writes with first-update backup preservation, plus regression tests for two-sheet isolation, selected-day reconciliation, and failed verification leaving the original untouched.
 - Added distinct success/duplicate/unknown scan tones, silent cooldown scans, Settings test buttons, and unit coverage for the result-to-sound mapping.
 - Updated README, CHANGELOG, PASS User Guide, and PASS PRD. No DOCX files were edited.
 - Verification passed: `npx tsc --noEmit`; full `npm test` (31 passed, one conditional local-workbook test skipped because its folder is absent); and `npm run build`.

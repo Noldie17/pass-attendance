@@ -390,12 +390,8 @@ export function previewSf2Workbook(workbook: ExcelJS.Workbook, options: {
         const value = String(valueOf(selected.sheet.getCell(row, column).value)).trim()
         const isX = value.toLocaleLowerCase() === 'x'
         const absent = (statusById.get(student.student_id.toLocaleLowerCase()) ?? 'A') === 'A'
-        if (value && !isX) {
-          unchanged++
-          continue
-        }
-        if (absent && !value) willMarkAbsent.push(student.name)
-        else if (!absent && isX) willClear.push(student.name)
+        if (absent && !isX) willMarkAbsent.push(student.name)
+        else if (!absent && value) willClear.push(student.name)
         else unchanged++
       }
       const otherMarks = matchedStudents.filter(student => {
@@ -403,7 +399,7 @@ export function previewSf2Workbook(workbook: ExcelJS.Workbook, options: {
         const value = String(valueOf(selected.sheet!.getCell(row, column!).value)).trim()
         return value && value.toLocaleLowerCase() !== 'x'
       }).map(student => student.name)
-      if (otherMarks.length) warnings.push(`The selected day has marks other than "x" for: ${otherMarks.join('; ')}. PASS will leave those cells unchanged.`)
+      if (otherMarks.length) warnings.push(`The selected day has existing non-x marks for: ${otherMarks.join('; ')}. PASS will replace each matched learner's day cell using saved attendance: absent becomes "x"; present or late becomes blank.`)
     }
   }
 
@@ -451,11 +447,9 @@ export function updateSf2Workbook(workbook: ExcelJS.Workbook, options: {
   for (const student of matchedStudents) {
     const row = rowByName.get(normalizeStudentName(student.name))!
     const cell = sheet.getCell(row, result.dayColumn)
-    const value = String(valueOf(cell.value)).trim()
-    if (value && value.toLocaleLowerCase() !== 'x') continue
     const status = statusById.get(student.student_id.toLocaleLowerCase()) ?? 'A'
     if (status === 'A') cell.value = 'x'
-    else if (value.toLocaleLowerCase() === 'x') cell.value = null
+    else cell.value = null
   }
   const schoolDays = dayColumns(sheet, data).filter(item => !isHolidayColumn(sheet, item.column, data))
   const groups = {

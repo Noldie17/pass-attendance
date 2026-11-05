@@ -2,7 +2,7 @@
 
 **Document version:** 1.0  
 **Product:** PASS — PNHS Attendance Scanning System  
-**Current package version in `package.json`:** 0.2.3  
+**Current package version in `package.json`:** 1.1.1
 **Status:** Requirements and implementation summary; Windows acceptance testing is pending.
 
 ## 1. Overview
@@ -11,7 +11,7 @@ PASS is an offline Windows desktop attendance system for Pantabangan National Hi
 
 The product addresses slow, error-prone manual roll call and the lack of a scan-attempt record that can help explain what happened during attendance. An append-only CSV log records scan attempts, including duplicate and unknown IDs. PASS keeps its database on the local computer and does not provide cloud synchronization.
 
-This document is version 1.0 as requested for the Phase 5 documentation deliverable. The application package version is 0.2.3; it is not evidence that a 1.0 application release has been built or accepted.
+This document is version 1.0 as requested for the Phase 5 documentation deliverable. The application package version is 1.1.1; it is not evidence that a Windows release has been built or accepted.
 
 ## 2. Goals, non-goals, and out of scope
 
@@ -85,7 +85,7 @@ This document is version 1.0 as requested for the Phase 5 documentation delivera
 1. The teacher links an `.xlsx` workbook. Legacy `.xls` sources must first be saved as an `.xlsx` copy in Excel; PASS never edits the `.xls`.
 2. PASS detects each SF2 worksheet and displays its report month, school year, grade, section, and learner count. The teacher selects a sheet and existing school-day column; holidays are disabled.
 3. PASS previews the update and validates readability, school year, date column, and normalized learner-name matches. Errors block writing; warnings require explicit confirmation.
-4. PASS writes `x` only for absent active learners, clears an existing `x` when a learner is present or late, and leaves other characters unchanged. Late is counted as present in per-learner and monthly summary totals.
+4. PASS reconciles each matched active learner's selected day cell to saved attendance: no record or Absent becomes `x`; Present or Late becomes blank. This replaces stale or conflicting marks in that day column; other worksheets and cells are unchanged. Late is counted as present in per-learner and monthly summary totals.
 5. PASS writes to a same-folder temporary file, reopens and verifies it, preserves the first-update `.bak.xlsx` backup, then replaces the original. If the source is locked, PASS reports “Close the file in Excel, then try again” and does not complete the update.
 
 ### 4.7 Export scan log
@@ -109,7 +109,7 @@ Status describes the code observed in the project, not a completed school accept
 | FR-07 | Optionally require a PIN for manual attendance changes and store the PIN using scrypt. | Should | Partial | Enable a 4–12 digit PIN; verify a wrong PIN rejects a manual edit and the correct PIN allows it. Verify security review of PIN disable/reset separately. |
 | FR-08 | Configure late cutoff, cooldown, result-specific sounds, default camera, PIN, and class rename/delete. | Must | Partial | Save supported settings; test success, duplicate, and unknown-ID sounds; verify persistence after restart; rename a class and verify display; confirm deletion removes the class and its attendance after confirmation. |
 | FR-09 | Explain camera-not-found, permission-blocked, and camera-in-use failures; retain manual entry. | Must | Partial | On Windows, test no camera, denied permission, and a camera held by another app; each state must explain the issue while manual entry remains usable. |
-| FR-10 | Update an existing SF2 day column across multi-sheet workbooks with x-only absence marks, validation, totals, safe write, backup, and clear locked-file errors. | Must | Implemented; local workbook unverified | Verify only the selected SF2 sheet changes; absent learners receive `x`, present/late learners are blank, other marks remain untouched, totals are correct, warning confirmation is required, and failed verification leaves the source unchanged. |
+| FR-10 | Reconcile an existing SF2 day column across multi-sheet workbooks against PASS attendance, with validation, totals, safe write, backup, and clear locked-file errors. | Must | Implemented; local workbook unverified | Verify only the selected SF2 sheet/day learner cells and related totals change; no-record/absent learners receive `x`, present/late learners are blank, stale marks are replaced, warning confirmation is required, and failed verification leaves the source unchanged. |
 | FR-11 | Read the append-only CSV and export a selected date range to `.xlsx`. | Must | Implemented | Export a date range and verify only rows in that range appear with the eight required headers; the CSV must remain unchanged. |
 | FR-12 | Generate QR cards for selected students; print or save an A4 PDF; disable output with zero selected. | Must | Implemented | Select zero students and verify both output actions are disabled; select multiple students and verify IDs, names, and QR payloads in print/PDF output. |
 | FR-13 | Build Windows NSIS and portable packages on `windows-latest` and upload `.exe` artifacts. | Must | Partial | Run the GitHub Actions workflow on Windows; verify both `.exe` files are uploaded and install/launch on a clean Windows laptop. |
@@ -218,7 +218,7 @@ Status describes the code observed in the project, not a completed school accept
 ## 14. Deviations from spec
 
 - The ZIP UI reference was not supplied. The current screen design uses the written navy/green/canvas colors and a locally generated PASS wordmark icon, not the original seven-screen layout/components/logo.
-- Product documentation is labeled version 1.0 per request, distinct from the application’s `package.json` version of 0.2.3.
+- Product documentation is labeled version 1.0 per request, distinct from the application’s `package.json` version of 1.1.1.
 - The renderer CSP allows inline styles (`style-src 'unsafe-inline'`); it blocks remote connections and inline scripts, but does not use nonce/hash-only style policy.
 - Class scan logs are stored in folders named from the class name. Renaming a class does not migrate old CSV files; the Scan Log screen reads the current name’s folder, so historical logs under the old name may no longer appear there.
 - Optional generation of a new SF2 workbook from PASS is not implemented. Existing SF2 workbooks must contain the selected day column; PASS will not add one.
